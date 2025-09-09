@@ -1,36 +1,40 @@
 import React from 'react';
-import {Link} from 'react-router-dom';
-import {useAuth} from '../contexts/AuthContext';
-import {useData} from '../contexts/DataContext';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { useData } from '../contexts/DataContext';
+import { useDatabase } from '../contexts/DatabaseContext';
 import SafeIcon from '../common/SafeIcon';
+import DatabaseStatus from '../components/DatabaseStatus';
+import DatabaseSetup from '../components/DatabaseSetup';
 import * as FiIcons from 'react-icons/fi';
 
-const {FiPackage,FiMapPin,FiAlertTriangle,FiCheckSquare,FiPlus,FiArrowRight,FiActivity,FiClock,FiTrendingUp,FiZap}=FiIcons;
+const { FiPackage, FiMapPin, FiAlertTriangle, FiCheckSquare, FiPlus, FiArrowRight, FiActivity, FiClock, FiTrendingUp, FiZap } = FiIcons;
 
-const Dashboard=()=> {
-  const {user}=useAuth();
-  const {stations,equipment,getInspectionStatus}=useData();
+const Dashboard = () => {
+  const { user } = useAuth();
+  const { stations, equipment, getInspectionStatus } = useData();
+  const { isConnected } = useDatabase();
 
-  const getGreeting=()=> {
-    const hour=new Date().getHours();
+  const getGreeting = () => {
+    const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
     if (hour < 18) return 'Good afternoon';
     return 'Good evening';
   };
 
-  const getEquipmentStats=()=> {
-    const total=equipment.length;
-    const inService=equipment.filter(item=> item.status==='in-service').length;
-    const outOfService=equipment.filter(item=> item.status==='out-of-service').length;
-    const criticalInspections=equipment.filter(item=> {
-      const status=getInspectionStatus(item.id);
-      return status && (status.status==='past-due' || status.status==='critical');
+  const getEquipmentStats = () => {
+    const total = equipment.length;
+    const inService = equipment.filter(item => item.status === 'in-service').length;
+    const outOfService = equipment.filter(item => item.status === 'out-of-service').length;
+    const criticalInspections = equipment.filter(item => {
+      const status = getInspectionStatus(item.id);
+      return status && (status.status === 'past-due' || status.status === 'critical');
     }).length;
 
-    return {total,inService,outOfService,criticalInspections};
+    return { total, inService, outOfService, criticalInspections };
   };
 
-  const stats=getEquipmentStats();
+  const stats = getEquipmentStats();
 
   return (
     <div className="min-h-screen bg-mission-bg-primary">
@@ -40,32 +44,47 @@ const Dashboard=()=> {
           <div>
             <div className="flex items-center space-x-3 mb-2">
               <h1 className="text-3xl font-inter-tight font-bold text-mission-text-primary">
-                DASHBOARD
+                Dashboard
               </h1>
               <div className="status-dot status-success w-2 h-2 bg-mission-accent-green rounded-full"></div>
             </div>
             <p className="text-base font-inter text-mission-text-secondary">
-              {getGreeting()}, {user?.name} • All systems operational
+              {getGreeting()}, {user?.name} • {isConnected ? 'Database connected' : 'Using local storage'}
             </p>
           </div>
           <div className="flex items-center space-x-3 mt-4 sm:mt-0">
+            <DatabaseStatus />
+            {!isConnected && <DatabaseSetup />}
             <div className="text-sm font-roboto-mono text-mission-text-muted">
-              {new Date().toLocaleString('en-US', {
-                hour12: false,
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-              })}
+              {new Date().toLocaleString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </div>
             <Link
               to="/app/equipment"
               className="flex items-center space-x-2 bg-fire-red hover:bg-fire-red-dark text-white px-4 py-2 rounded-md text-sm font-inter font-medium transition-colors mission-glow-red"
             >
               <SafeIcon icon={FiPlus} className="w-4 h-4" />
-              <span>ADD EQUIPMENT</span>
+              <span>Add Equipment</span>
             </Link>
           </div>
         </div>
+
+        {/* Database Connection Status */}
+        {!isConnected && (
+          <div className="bg-blue-950/20 border border-blue-800/30 rounded-md p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="status-dot w-2 h-2 bg-blue-500 rounded-full"></div>
+                <div>
+                  <h3 className="text-base font-inter-tight font-bold text-blue-400">Local Storage Mode</h3>
+                  <p className="text-sm font-inter text-blue-300">
+                    Connect to Supabase to enable database persistence and multi-user access
+                  </p>
+                </div>
+              </div>
+              <DatabaseSetup />
+            </div>
+          </div>
+        )}
 
         {/* Critical Alerts */}
         {stats.criticalInspections > 0 && (
@@ -75,7 +94,7 @@ const Dashboard=()=> {
                 <div className="flex items-center space-x-3">
                   <div className="status-dot status-critical w-2 h-2 bg-red-500 rounded-full mission-pulse"></div>
                   <div>
-                    <h3 className="text-base font-inter-tight font-bold text-red-400">CRITICAL ALERT</h3>
+                    <h3 className="text-base font-inter-tight font-bold text-red-400">Critical Alert</h3>
                     <p className="text-sm font-inter text-red-300">
                       {stats.criticalInspections} equipment items require immediate attention
                     </p>
@@ -88,16 +107,16 @@ const Dashboard=()=> {
         )}
 
         {/* Primary Stats Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Link to="/app/equipment" className="block group">
-            <div className="bg-mission-bg-secondary border border-mission-border rounded-md p-4 hover:border-mission-border-light transition-all duration-200 group-hover:mission-glow">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center justify-center w-8 h-8 bg-mission-accent-blue/20 rounded-md">
-                  <SafeIcon icon={FiPackage} className="w-4 h-4 text-mission-accent-blue" />
+            <div className="bg-mission-bg-secondary border border-mission-border rounded-md p-3 hover:border-mission-border-light transition-all duration-200 group-hover:mission-glow">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-center w-6 h-6 bg-mission-accent-blue/20 rounded-md">
+                  <SafeIcon icon={FiPackage} className="w-3 h-3 text-mission-accent-blue" />
                 </div>
                 <div className="text-right">
-                  <div className="text-2xl font-inter-tight font-bold text-mission-text-primary">{stats.total}</div>
-                  <div className="text-xs font-roboto-mono text-mission-text-muted">TOTAL</div>
+                  <div className="text-xl font-inter-tight font-bold text-mission-text-primary">{stats.total}</div>
+                  <div className="text-xs font-roboto-mono text-mission-text-muted">Total</div>
                 </div>
               </div>
               <div className="text-sm font-inter font-medium text-mission-text-secondary">Equipment Items</div>
@@ -105,14 +124,14 @@ const Dashboard=()=> {
           </Link>
 
           <Link to="/app/equipment" className="block group">
-            <div className="bg-mission-bg-secondary border border-mission-border rounded-md p-4 hover:border-mission-border-light transition-all duration-200 group-hover:mission-glow-green">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center justify-center w-8 h-8 bg-mission-accent-green/20 rounded-md">
-                  <SafeIcon icon={FiCheckSquare} className="w-4 h-4 text-mission-accent-green" />
+            <div className="bg-mission-bg-secondary border border-mission-border rounded-md p-3 hover:border-mission-border-light transition-all duration-200 group-hover:mission-glow-green">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-center w-6 h-6 bg-mission-accent-green/20 rounded-md">
+                  <SafeIcon icon={FiCheckSquare} className="w-3 h-3 text-mission-accent-green" />
                 </div>
                 <div className="text-right">
-                  <div className="text-2xl font-inter-tight font-bold text-mission-text-primary">{stats.inService}</div>
-                  <div className="text-xs font-roboto-mono text-mission-text-muted">ACTIVE</div>
+                  <div className="text-xl font-inter-tight font-bold text-mission-text-primary">{stats.inService}</div>
+                  <div className="text-xs font-roboto-mono text-mission-text-muted">Active</div>
                 </div>
               </div>
               <div className="text-sm font-inter font-medium text-mission-text-secondary">In Service</div>
@@ -120,14 +139,14 @@ const Dashboard=()=> {
           </Link>
 
           <Link to="/app/equipment" className="block group">
-            <div className="bg-mission-bg-secondary border border-mission-border rounded-md p-4 hover:border-mission-border-light transition-all duration-200">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center justify-center w-8 h-8 bg-red-500/20 rounded-md">
-                  <SafeIcon icon={FiAlertTriangle} className="w-4 h-4 text-red-400" />
+            <div className="bg-mission-bg-secondary border border-mission-border rounded-md p-3 hover:border-mission-border-light transition-all duration-200">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-center w-6 h-6 bg-red-500/20 rounded-md">
+                  <SafeIcon icon={FiAlertTriangle} className="w-3 h-3 text-red-400" />
                 </div>
                 <div className="text-right">
-                  <div className="text-2xl font-inter-tight font-bold text-mission-text-primary">{stats.outOfService}</div>
-                  <div className="text-xs font-roboto-mono text-mission-text-muted">OFFLINE</div>
+                  <div className="text-xl font-inter-tight font-bold text-mission-text-primary">{stats.outOfService}</div>
+                  <div className="text-xs font-roboto-mono text-mission-text-muted">Offline</div>
                 </div>
               </div>
               <div className="text-sm font-inter font-medium text-mission-text-secondary">Out of Service</div>
@@ -135,14 +154,14 @@ const Dashboard=()=> {
           </Link>
 
           <Link to="/app/stations" className="block group">
-            <div className="bg-mission-bg-secondary border border-mission-border rounded-md p-4 hover:border-mission-border-light transition-all duration-200">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center justify-center w-8 h-8 bg-mission-accent-orange/20 rounded-md">
-                  <SafeIcon icon={FiMapPin} className="w-4 h-4 text-mission-accent-orange" />
+            <div className="bg-mission-bg-secondary border border-mission-border rounded-md p-3 hover:border-mission-border-light transition-all duration-200">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-center w-6 h-6 bg-mission-accent-orange/20 rounded-md">
+                  <SafeIcon icon={FiMapPin} className="w-3 h-3 text-mission-accent-orange" />
                 </div>
                 <div className="text-right">
-                  <div className="text-2xl font-inter-tight font-bold text-mission-text-primary">{stations.length}</div>
-                  <div className="text-xs font-roboto-mono text-mission-text-muted">ONLINE</div>
+                  <div className="text-xl font-inter-tight font-bold text-mission-text-primary">{stations.length}</div>
+                  <div className="text-xs font-roboto-mono text-mission-text-muted">Online</div>
                 </div>
               </div>
               <div className="text-sm font-inter font-medium text-mission-text-secondary">Stations</div>
@@ -151,12 +170,12 @@ const Dashboard=()=> {
         </div>
 
         {/* Dashboard Panels */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Quick Actions Panel */}
           <div className="bg-mission-bg-secondary border border-mission-border rounded-md">
             <div className="px-4 py-3 border-b border-mission-border flex items-center space-x-2">
               <SafeIcon icon={FiZap} className="w-4 h-4 text-mission-accent-blue" />
-              <h2 className="text-base font-inter-tight font-bold text-mission-text-primary">QUICK ACTIONS</h2>
+              <h2 className="text-base font-inter-tight font-bold text-mission-text-primary">Quick Actions</h2>
             </div>
             <div className="p-4 space-y-3">
               <Link
@@ -200,43 +219,11 @@ const Dashboard=()=> {
             </div>
           </div>
 
-          {/* System Performance */}
-          <div className="bg-mission-bg-secondary border border-mission-border rounded-md">
-            <div className="px-4 py-3 border-b border-mission-border flex items-center space-x-2">
-              <SafeIcon icon={FiActivity} className="w-4 h-4 text-mission-accent-green" />
-              <h2 className="text-base font-inter-tight font-bold text-mission-text-primary">SYSTEM STATUS</h2>
-            </div>
-            <div className="p-4 space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-inter text-mission-text-secondary">Database</span>
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-mission-accent-green rounded-full"></div>
-                  <span className="text-sm font-roboto-mono text-mission-accent-green">ONLINE</span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-inter text-mission-text-secondary">Sync Status</span>
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-mission-accent-green rounded-full"></div>
-                  <span className="text-sm font-roboto-mono text-mission-accent-green">SYNCED</span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-inter text-mission-text-secondary">Last Backup</span>
-                <span className="text-sm font-roboto-mono text-mission-text-muted">2 MIN AGO</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-inter text-mission-text-secondary">Response Time</span>
-                <span className="text-sm font-roboto-mono text-mission-accent-blue">12ms</span>
-              </div>
-            </div>
-          </div>
-
           {/* Recent Activity */}
           <div className="bg-mission-bg-secondary border border-mission-border rounded-md">
             <div className="px-4 py-3 border-b border-mission-border flex items-center space-x-2">
               <SafeIcon icon={FiClock} className="w-4 h-4 text-mission-accent-orange" />
-              <h2 className="text-base font-inter-tight font-bold text-mission-text-primary">RECENT ACTIVITY</h2>
+              <h2 className="text-base font-inter-tight font-bold text-mission-text-primary">Recent Activity</h2>
             </div>
             <div className="p-4">
               {equipment.length === 0 ? (
@@ -249,7 +236,7 @@ const Dashboard=()=> {
                     className="inline-flex items-center space-x-2 bg-fire-red hover:bg-fire-red-dark text-white px-3 py-2 rounded text-sm font-inter font-medium transition-colors"
                   >
                     <SafeIcon icon={FiPlus} className="w-4 h-4" />
-                    <span>ADD EQUIPMENT</span>
+                    <span>Add Equipment</span>
                   </Link>
                 </div>
               ) : (
@@ -274,7 +261,7 @@ const Dashboard=()=> {
                       to="/app/equipment"
                       className="block text-center text-fire-red hover:text-fire-red-light text-sm font-roboto-mono mt-3"
                     >
-                      VIEW ALL ({equipment.length}) →
+                      View All ({equipment.length}) →
                     </Link>
                   )}
                 </div>
