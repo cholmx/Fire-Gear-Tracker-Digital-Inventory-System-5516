@@ -10,9 +10,9 @@ const Layout = () => {
   return (
     <div className="min-h-screen bg-mission-bg-primary text-mission-text-primary mission-grid">
       <Header onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
-      <div className="flex pt-14 h-[calc(100vh-3.5rem)]">
+      <div className="flex pt-16 h-[calc(100vh-4rem)]">
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <main className="flex-1 overflow-auto bg-mission-bg-primary">
+        <main className="flex-1 overflow-auto bg-mission-bg-primary p-6">
           <Outlet />
         </main>
       </div>

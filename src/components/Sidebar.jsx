@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 
@@ -15,6 +15,12 @@ const navigation = [
 
 const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleNavigation = (href) => {
+    navigate(href);
+    onClose();
+  };
 
   return (
     <>
@@ -50,23 +56,21 @@ const Sidebar = ({ isOpen, onClose }) => {
               const isActive = location.pathname === item.href;
               
               return (
-                <NavLink
+                <button
                   key={item.name}
-                  to={item.href}
-                  onClick={onClose}
-                  style={{ backgroundColor: 'transparent' }} // Force transparent background
-                  className={({ isActive }) => `
-                    flex items-center space-x-3 px-3 py-2 rounded-md text-sm font-inter font-medium transition-all duration-200 no-underline
+                  onClick={() => handleNavigation(item.href)}
+                  className={`
+                    w-full flex items-center space-x-3 px-3 py-2 rounded-md text-sm font-inter font-medium transition-all duration-200 text-left
                     ${
                       isActive
-                        ? '!bg-fire-red text-white mission-glow-red'
-                        : 'text-mission-text-secondary hover:!bg-fire-red hover:text-white'
+                        ? 'bg-fire-red text-white mission-glow-red'
+                        : 'bg-transparent text-mission-text-secondary hover:bg-fire-red hover:text-white'
                     }
                   `}
                 >
                   <SafeIcon icon={item.icon} className="w-4 h-4" />
                   <span>{item.name}</span>
-                </NavLink>
+                </button>
               );
             })}
           </nav>
