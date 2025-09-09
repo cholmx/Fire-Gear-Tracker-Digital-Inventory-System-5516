@@ -119,12 +119,12 @@ const DatabaseSetup = () => {
               <br />
               <div className="text-green-400">// Basic server setup</div>
               <div className="text-mission-text-muted">const express = require('express');</div>
-              <div className="text-mission-text-muted">const { Pool } = require('pg');</div>
+              <div className="text-mission-text-muted">const {`{ Pool }`} = require('pg');</div>
               <div className="text-mission-text-muted">const cors = require('cors');</div>
               <br />
-              <div className="text-mission-text-muted">const pool = new Pool({</div>
+              <div className="text-mission-text-muted">const pool = new Pool({`{`}</div>
               <div className="text-mission-text-muted ml-4">connectionString: 'your-neon-connection-string'</div>
-              <div className="text-mission-text-muted">});</div>
+              <div className="text-mission-text-muted">{`}`});</div>
             </div>
           </div>
 

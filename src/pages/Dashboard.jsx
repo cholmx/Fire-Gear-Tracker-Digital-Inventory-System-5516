@@ -8,7 +8,7 @@ import DatabaseStatus from '../components/DatabaseStatus';
 import DatabaseSetup from '../components/DatabaseSetup';
 import * as FiIcons from 'react-icons/fi';
 
-const { FiPackage, FiMapPin, FiAlertTriangle, FiCheckSquare, FiPlus, FiArrowRight, FiActivity, FiClock, FiTrendingUp, FiZap } = FiIcons;
+const { FiPackage, FiMapPin, FiAlertTriangle, FiCheckSquare, FiPlus, FiArrowRight, FiClock, FiZap } = FiIcons;
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -77,7 +77,7 @@ const Dashboard = () => {
                 <div>
                   <h3 className="text-base font-inter-tight font-bold text-blue-400">Local Storage Mode</h3>
                   <p className="text-sm font-inter text-blue-300">
-                    Connect to Supabase to enable database persistence and multi-user access
+                    Connect to PostgreSQL database to enable persistence and multi-user access
                   </p>
                 </div>
               </div>

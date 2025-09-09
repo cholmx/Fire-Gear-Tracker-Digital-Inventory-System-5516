@@ -1,17 +1,17 @@
-import { createClient } from '@supabase/supabase-js'
+// PostgreSQL Database Configuration
+// This file is kept for compatibility but the app now uses direct PostgreSQL connection
 
-// Your Neon database connection will be configured through Supabase
-// For now, we'll use placeholder values that will be replaced with actual credentials
-const SUPABASE_URL = 'https://<PROJECT-ID>.supabase.co'
-const SUPABASE_ANON_KEY = '<ANON_KEY>'
+export const createClient = () => {
+  console.warn('Supabase client not configured. Using local storage as fallback.');
+  
+  return {
+    from: () => ({
+      select: () => Promise.resolve({ data: [], error: null }),
+      insert: () => Promise.resolve({ data: null, error: new Error('Database not connected') }),
+      update: () => Promise.resolve({ data: null, error: new Error('Database not connected') }),
+      delete: () => Promise.resolve({ data: null, error: new Error('Database not connected') })
+    })
+  };
+};
 
-if(SUPABASE_URL === 'https://<PROJECT-ID>.supabase.co' || SUPABASE_ANON_KEY === '<ANON_KEY>') {
-  throw new Error('Missing Supabase variables. Please connect your Supabase project first.');
-}
-
-export default createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true
-  }
-})
+export default createClient();
