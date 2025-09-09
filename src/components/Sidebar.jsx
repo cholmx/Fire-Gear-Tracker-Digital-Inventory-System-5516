@@ -48,17 +48,19 @@ const Sidebar = ({ isOpen, onClose }) => {
           <nav className="space-y-2 mt-2">
             {navigation.map((item) => {
               const isActive = location.pathname === item.href;
+              
               return (
                 <NavLink
                   key={item.name}
                   to={item.href}
                   onClick={onClose}
-                  className={`
-                    flex items-center space-x-3 px-3 py-2 rounded-md text-sm font-inter font-medium transition-all duration-200
+                  style={{ backgroundColor: 'transparent' }} // Force transparent background
+                  className={({ isActive }) => `
+                    flex items-center space-x-3 px-3 py-2 rounded-md text-sm font-inter font-medium transition-all duration-200 no-underline
                     ${
                       isActive
-                        ? 'bg-fire-red text-white mission-glow-red'
-                        : 'text-mission-text-secondary hover:bg-mission-bg-primary hover:text-mission-text-primary'
+                        ? '!bg-fire-red text-white mission-glow-red'
+                        : 'text-mission-text-secondary hover:!bg-fire-red hover:text-white'
                     }
                   `}
                 >
