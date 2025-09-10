@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import React,{useState} from 'react';
+import {useAuth} from '../contexts/AuthContext';
 import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 
-const { FiMenu, FiShield, FiUser, FiSettings, FiLogOut, FiMoreHorizontal } = FiIcons;
+const {FiMenu,FiShield,FiUser,FiSettings,FiLogOut,FiMoreHorizontal}=FiIcons;
 
-const Header = ({ onMenuClick }) => {
-  const { user, logout } = useAuth();
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+const Header=({onMenuClick})=> {
+  const {user,logout}=useAuth();
+  const [dropdownOpen,setDropdownOpen]=useState(false);
 
   return (
     <header className="bg-mission-bg-secondary/95 backdrop-blur-sm border-b border-mission-border px-4 py-3 fixed top-0 left-0 right-0 z-50">
@@ -25,7 +25,7 @@ const Header = ({ onMenuClick }) => {
               <SafeIcon icon={FiShield} className="w-4 h-4 text-white" />
             </div>
             <h1 className="text-base font-inter-tight font-bold text-mission-text-primary">
-              FIRE GEAR TRACKER
+              Fire Gear Tracker
             </h1>
           </div>
         </div>
@@ -40,7 +40,7 @@ const Header = ({ onMenuClick }) => {
           {/* User Menu */}
           <div className="relative">
             <button
-              onClick={() => setDropdownOpen(!dropdownOpen)}
+              onClick={()=> setDropdownOpen(!dropdownOpen)}
               className="flex items-center space-x-2 p-2 rounded-md hover:bg-mission-bg-tertiary transition-colors"
             >
               <div className="flex items-center justify-center w-7 h-7 bg-mission-bg-tertiary rounded-md">
@@ -60,17 +60,14 @@ const Header = ({ onMenuClick }) => {
             {dropdownOpen && (
               <div className="absolute right-0 mt-1 w-48 bg-mission-bg-tertiary border border-mission-border rounded-md shadow-xl py-1">
                 <button
-                  onClick={() => setDropdownOpen(false)}
+                  onClick={()=> setDropdownOpen(false)}
                   className="flex items-center space-x-2 w-full px-4 py-2 text-sm hover:bg-mission-bg-primary transition-colors"
                 >
                   <SafeIcon icon={FiSettings} className="w-4 h-4 text-mission-text-muted" />
                   <span className="font-inter text-mission-text-secondary">Settings</span>
                 </button>
                 <button
-                  onClick={() => {
-                    logout();
-                    setDropdownOpen(false);
-                  }}
+                  onClick={()=> {logout();setDropdownOpen(false);}}
                   className="flex items-center space-x-2 w-full px-4 py-2 text-sm hover:bg-mission-bg-primary transition-colors text-red-400"
                 >
                   <SafeIcon icon={FiLogOut} className="w-4 h-4" />
