@@ -1,9 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import { authService } from '../lib/auth'
+import supabase, { handleSupabaseError } from '../lib/supabase'
 import { db } from '../lib/database'
 import { toast } from '../lib/toast'
-import { analytics } from '../lib/analytics'
-import supabase from '../lib/supabase'
 
 const AuthContext = createContext()
 
@@ -24,41 +22,23 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     initializeAuth()
 
-    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('🔐 Auth state changed:', event, session?.user?.email)
+        console.log('🔐 Auth state changed:', event)
         
         if (event === 'SIGNED_IN' && session?.user) {
           try {
-            console.log('✅ User signed in, initializing auth service...')
-            // Initialize auth service with the new session
-            await authService.initializeAuth()
-            
-            setUser(authService.currentUser)
-            setDepartment(authService.department)
-            
-            // Set department context in database service
-            if (authService.department?.id) {
-              console.log('🏢 Setting department context:', authService.department.id)
-              db.setDepartmentId(authService.department.id)
-            }
-            
-            setError(null)
+            await loadUserProfile(session.user)
           } catch (error) {
-            console.error('❌ Error handling sign in:', error)
+            console.error('❌ Error loading user profile:', error)
             setError(error.message)
           }
         } else if (event === 'SIGNED_OUT') {
-          console.log('👋 User signed out, clearing context...')
-          authService.currentUser = null
-          authService.department = null
+          console.log('👋 User signed out')
           setUser(null)
           setDepartment(null)
           db.clearDepartmentContext()
           setError(null)
-        } else if (event === 'TOKEN_REFRESHED') {
-          console.log('🔄 Token refreshed successfully')
         }
         
         setLoading(false)
@@ -73,27 +53,12 @@ export const AuthProvider = ({ children }) => {
       setLoading(true)
       setError(null)
       
-      console.log('🚀 Initializing auth service...')
-      // Initialize auth service
-      await authService.initializeAuth()
+      const { data: { session } } = await supabase.auth.getSession()
       
-      // Set initial state
-      setUser(authService.currentUser)
-      setDepartment(authService.department)
-      
-      // Set department context in database service
-      if (authService.department?.id) {
-        console.log('🏢 Setting initial department context:', authService.department.id)
-        db.setDepartmentId(authService.department.id)
+      if (session?.user) {
+        await loadUserProfile(session.user)
       }
       
-      // Track authentication state
-      if (authService.currentUser) {
-        analytics.track('user_authenticated', {
-          user_id: authService.currentUser.id,
-          department_id: authService.department?.id
-        })
-      }
     } catch (err) {
       console.error('❌ Auth initialization error:', err)
       setError(err.message)
@@ -102,41 +67,111 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
+  const loadUserProfile = async (authUser) => {
+    try {
+      const { data: profile, error } = await supabase
+        .from('user_profiles')
+        .select(`
+          *,
+          department:departments(id, name, plan, subscription_status, admin_email)
+        `)
+        .eq('user_id', authUser.id)
+        .single()
+
+      if (error) {
+        const handledError = handleSupabaseError(error, 'load user profile')
+        throw handledError.error
+      }
+
+      if (!profile) {
+        throw new Error('User profile not found')
+      }
+
+      const userObj = {
+        id: authUser.id,
+        email: authUser.email,
+        name: `${profile.first_name} ${profile.last_name}`,
+        firstName: profile.first_name,
+        lastName: profile.last_name,
+        role: profile.role,
+        department: profile.department.name,
+        departmentId: profile.department.id
+      }
+
+      const departmentObj = {
+        id: profile.department.id,
+        name: profile.department.name,
+        plan: profile.department.plan,
+        subscriptionStatus: profile.department.subscription_status,
+        adminEmail: profile.department.admin_email
+      }
+
+      setUser(userObj)
+      setDepartment(departmentObj)
+      db.setDepartmentId(profile.department.id)
+      
+    } catch (error) {
+      console.error('❌ Error loading user profile:', error)
+      throw error
+    }
+  }
+
   const signUp = async (email, password, departmentData) => {
     try {
       setLoading(true)
       setError(null)
-      
-      console.log('📝 Starting signup in AuthContext...', { email, departmentName: departmentData.name })
-      
-      const result = await authService.signUp(email, password, departmentData)
-      
-      if (result.success) {
-        analytics.track('user_signup', {
-          email,
-          department_name: departmentData.name,
-          plan: departmentData.selectedPlan || 'free'
-        })
-        
-        setUser(result.user)
-        setDepartment(result.department)
-        
-        // Set department context in database service
-        console.log('🏢 Setting department context after signup:', result.department.id)
-        db.setDepartmentId(result.department.id)
-        
-        // Initialize fresh department data
-        await db.initializeDepartmentData(result.department.id)
-        
-        return { success: true }
-      } else {
-        setError(result.error.message)
-        return { success: false, error: result.error }
+
+      // Create auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password
+      })
+
+      if (authError) {
+        const handledError = handleSupabaseError(authError, 'signup auth')
+        throw handledError.error
       }
-    } catch (err) {
-      console.error('❌ SignUp error in AuthContext:', err)
-      setError(err.message)
-      return { success: false, error: err }
+
+      if (!authData.user) {
+        throw new Error('Failed to create user account')
+      }
+
+      // Wait for auth state to propagate
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      // Create department and profile using RPC
+      const { data: signupResult, error: signupError } = await supabase.rpc('signup_user', {
+        auth_user_id: authData.user.id,
+        user_email: email,
+        dept_name: departmentData.name,
+        admin_first_name: departmentData.adminFirstName,
+        admin_last_name: departmentData.adminLastName,
+        selected_plan: departmentData.selectedPlan || 'free'
+      })
+
+      if (signupError) {
+        // Clean up auth user on failure
+        await supabase.auth.signOut()
+        const handledError = handleSupabaseError(signupError, 'signup RPC')
+        throw handledError.error
+      }
+
+      if (!signupResult?.success) {
+        await supabase.auth.signOut()
+        throw new Error(signupResult?.error?.message || 'Signup failed')
+      }
+
+      // Load user profile
+      await loadUserProfile(authData.user)
+      
+      toast.success('Account created successfully!')
+      return { success: true, user, department }
+
+    } catch (error) {
+      console.error('❌ Signup error:', error)
+      setError(error.message)
+      toast.error('Failed to create account: ' + error.message)
+      return { success: false, error }
     } finally {
       setLoading(false)
     }
@@ -146,20 +181,26 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true)
       setError(null)
-      
-      const result = await authService.signIn(email, password)
-      
-      if (result.success) {
-        analytics.track('user_signin', { email })
-        // State will be updated by the auth state change listener
-        return { success: true }
-      } else {
-        setError(result.error.message)
-        return { success: false, error: result.error }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      })
+
+      if (error) {
+        const handledError = handleSupabaseError(error, 'signin')
+        throw handledError.error
       }
-    } catch (err) {
-      setError(err.message)
-      return { success: false, error: err }
+
+      // Profile will be loaded by the auth state change listener
+      toast.success('Successfully signed in!')
+      return { success: true }
+
+    } catch (error) {
+      console.error('❌ Signin error:', error)
+      setError(error.message)
+      toast.error('Failed to sign in: ' + error.message)
+      return { success: false, error }
     } finally {
       setLoading(false)
     }
@@ -168,90 +209,38 @@ export const AuthProvider = ({ children }) => {
   const signOut = async () => {
     try {
       setLoading(true)
-      analytics.track('user_signout')
       
-      const result = await authService.signOut()
+      const { error } = await supabase.auth.signOut()
       
-      if (result.success) {
-        // State will be updated by the auth state change listener
-        return { success: true }
-      } else {
-        return { success: false, error: result.error }
+      if (error) {
+        const handledError = handleSupabaseError(error, 'signout')
+        throw handledError.error
       }
-    } catch (err) {
-      return { success: false, error: err }
+
+      toast.success('Successfully signed out')
+      return { success: true }
+
+    } catch (error) {
+      console.error('❌ Signout error:', error)
+      toast.error('Failed to sign out: ' + error.message)
+      return { success: false, error }
     } finally {
       setLoading(false)
     }
   }
 
-  const resetPassword = async (email) => {
-    try {
-      const result = await authService.resetPassword(email)
-      if (result.success) {
-        analytics.track('password_reset_requested', { email })
-      }
-      return result
-    } catch (err) {
-      return { success: false, error: err }
-    }
-  }
-
-  const updatePassword = async (newPassword) => {
-    try {
-      const result = await authService.updatePassword(newPassword)
-      if (result.success) {
-        analytics.track('password_updated')
-      }
-      return result
-    } catch (err) {
-      return { success: false, error: err }
-    }
-  }
-
-  // Convenience method for login (alias for signIn)
-  const login = async (email, password) => {
-    return await signIn(email, password)
-  }
-
-  // Convenience method for logout (alias for signOut)
-  const logout = async () => {
-    return await signOut()
-  }
-
   // Permission checking
   const hasPermission = (permission) => {
-    return authService.hasPermission(permission)
-  }
-
-  // Subscription checking
-  const isSubscriptionActive = () => {
-    return authService.isSubscriptionActive()
-  }
-
-  const getPlanLimits = () => {
-    return authService.getPlanLimits()
-  }
-
-  // Check if feature is available
-  const canUseFeature = (feature) => {
-    if (!isSubscriptionActive()) {
-      return false
+    const rolePermissions = {
+      'fire-chief': ['view_all_equipment', 'edit_all_equipment', 'delete_equipment', 'manage_stations', 'manage_inspections', 'manage_users'],
+      'assistant-chief': ['view_all_equipment', 'edit_all_equipment', 'delete_equipment', 'manage_stations', 'manage_inspections'],
+      'captain': ['view_all_equipment', 'edit_assigned_equipment', 'manage_assigned_stations', 'manage_inspections'],
+      'lieutenant': ['view_all_equipment', 'edit_assigned_equipment', 'manage_inspections'],
+      'firefighter': ['view_assigned_equipment', 'update_equipment_status'],
+      'inspector': ['view_all_equipment', 'manage_inspections']
     }
 
-    const limits = getPlanLimits()
-    switch (feature) {
-      case 'unlimited_equipment':
-        return limits.equipment === Infinity
-      case 'unlimited_stations':
-        return limits.stations === Infinity
-      case 'advanced_analytics':
-        return department?.plan !== 'free'
-      case 'api_access':
-        return department?.plan === 'unlimited'
-      default:
-        return true
-    }
+    return rolePermissions[user?.role]?.includes(permission) || false
   }
 
   const value = {
@@ -262,14 +251,18 @@ export const AuthProvider = ({ children }) => {
     signUp,
     signIn,
     signOut,
-    login,
-    logout,
-    resetPassword,
-    updatePassword,
+    login: signIn, // Alias
+    logout: signOut, // Alias
     hasPermission,
-    isSubscriptionActive,
-    getPlanLimits,
-    canUseFeature
+    isSubscriptionActive: () => department?.subscriptionStatus === 'active' || department?.subscriptionStatus === 'trial',
+    getPlanLimits: () => {
+      const limits = {
+        free: { stations: 1, equipment: 50, users: 3 },
+        professional: { stations: 3, equipment: 300, users: 10 },
+        unlimited: { stations: Infinity, equipment: Infinity, users: Infinity }
+      }
+      return limits[department?.plan] || limits.free
+    }
   }
 
   return (

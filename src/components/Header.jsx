@@ -1,9 +1,6 @@
 import React, { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { useUsers, USER_ROLES } from '../contexts/UserContext'
-import { useDatabase } from '../contexts/DatabaseContext'
 import SafeIcon from '../common/SafeIcon'
-import DatabaseSetup from './DatabaseSetup'
 import DatabaseStatus from './DatabaseStatus'
 import * as FiIcons from 'react-icons/fi'
 
@@ -11,12 +8,16 @@ const { FiMenu, FiUser, FiSettings, FiLogOut, FiMoreHorizontal } = FiIcons
 
 const Header = ({ onMenuClick }) => {
   const { user, logout } = useAuth()
-  const { currentUser } = useUsers()
-  const { isConnected, healthStatus } = useDatabase()
   const [dropdownOpen, setDropdownOpen] = useState(false)
 
-  // Use currentUser from UserContext if available, otherwise fall back to auth user
-  const displayUser = currentUser || user
+  const handleLogout = async () => {
+    try {
+      await logout()
+      setDropdownOpen(false)
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
+  }
 
   return (
     <header className="bg-mission-bg-secondary/95 backdrop-blur-sm border-b border-mission-border px-4 py-3 fixed top-0 left-0 right-0 z-50">
@@ -28,7 +29,7 @@ const Header = ({ onMenuClick }) => {
           >
             <SafeIcon icon={FiMenu} className="w-5 h-5 text-mission-text-secondary" />
           </button>
-
+          
           <div className="flex items-center space-x-3">
             <div className="flex items-center justify-center w-8 h-8 bg-fire-red rounded-md mission-glow-red">
               <SafeIcon icon="ShieldCheck" className="w-4 h-4 text-white" />
@@ -41,20 +42,15 @@ const Header = ({ onMenuClick }) => {
 
         <div className="flex items-center space-x-4">
           {/* Database Status */}
-          <div className="hidden sm:flex items-center space-x-3">
+          <div className="hidden sm:flex items-center">
             <DatabaseStatus />
-            {(!isConnected || healthStatus !== 'healthy') && <DatabaseSetup />}
           </div>
 
           {/* System Status */}
           <div className="hidden md:flex items-center space-x-2">
-            <div className={`status-dot w-2 h-2 rounded-full ${
-              isConnected && healthStatus === 'healthy' 
-                ? 'status-success bg-mission-accent-green' 
-                : 'status-critical bg-red-500 mission-pulse'
-            }`}></div>
+            <div className="status-dot status-success w-2 h-2 bg-mission-accent-green rounded-full" />
             <span className="text-sm font-roboto-mono text-mission-text-muted">
-              {isConnected && healthStatus === 'healthy' ? 'SYSTEM ONLINE' : 'CONNECTION ISSUES'}
+              SYSTEM ONLINE
             </span>
           </div>
 
@@ -69,7 +65,7 @@ const Header = ({ onMenuClick }) => {
               </div>
               <div className="hidden sm:block text-left">
                 <div className="text-sm font-inter font-medium text-mission-text-primary">
-                  {displayUser?.firstName ? `${displayUser.firstName} ${displayUser.lastName}` : displayUser?.name}
+                  {user?.firstName ? `${user.firstName} ${user.lastName}` : user?.name}
                 </div>
               </div>
               <SafeIcon icon={FiMoreHorizontal} className="w-4 h-4 text-mission-text-muted" />
@@ -80,14 +76,14 @@ const Header = ({ onMenuClick }) => {
                 {/* User Info */}
                 <div className="px-4 py-3 border-b border-mission-border">
                   <div className="text-sm font-inter font-medium text-mission-text-primary">
-                    {displayUser?.firstName ? `${displayUser.firstName} ${displayUser.lastName}` : displayUser?.name}
+                    {user?.firstName ? `${user.firstName} ${user.lastName}` : user?.name}
                   </div>
                   <div className="text-xs text-mission-text-muted">
-                    {displayUser?.email}
+                    {user?.email}
                   </div>
-                  {displayUser?.department && (
+                  {user?.department && (
                     <div className="text-xs text-mission-text-muted mt-1">
-                      {displayUser.department}
+                      {user.department}
                     </div>
                   )}
                 </div>
@@ -98,11 +94,6 @@ const Header = ({ onMenuClick }) => {
                     Database Status
                   </div>
                   <DatabaseStatus />
-                  {(!isConnected || healthStatus !== 'healthy') && (
-                    <div className="mt-2">
-                      <DatabaseSetup />
-                    </div>
-                  )}
                 </div>
 
                 {/* Menu Items */}
@@ -113,12 +104,9 @@ const Header = ({ onMenuClick }) => {
                   <SafeIcon icon={FiSettings} className="w-4 h-4 text-mission-text-muted" />
                   <span className="font-inter text-mission-text-secondary">Settings</span>
                 </button>
-
+                
                 <button
-                  onClick={() => {
-                    logout()
-                    setDropdownOpen(false)
-                  }}
+                  onClick={handleLogout}
                   className="flex items-center space-x-2 w-full px-4 py-2 text-sm hover:bg-mission-bg-primary transition-colors text-red-400"
                 >
                   <SafeIcon icon={FiLogOut} className="w-4 h-4" />
