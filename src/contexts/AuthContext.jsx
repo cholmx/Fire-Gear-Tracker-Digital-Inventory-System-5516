@@ -1,8 +1,8 @@
-import React, {createContext, useContext, useState, useEffect} from 'react'
-import {authService} from '../lib/auth'
-import {db} from '../lib/database'
-import {toast} from '../lib/toast'
-import {analytics} from '../lib/analytics'
+import React, { createContext, useContext, useState, useEffect } from 'react'
+import { authService } from '../lib/auth'
+import { db } from '../lib/database'
+import { toast } from '../lib/toast'
+import { analytics } from '../lib/analytics'
 import supabase from '../lib/supabase'
 
 const AuthContext = createContext()
@@ -15,7 +15,7 @@ export const useAuth = () => {
   return context
 }
 
-export const AuthProvider = ({children}) => {
+export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [department, setDepartment] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -25,36 +25,40 @@ export const AuthProvider = ({children}) => {
     initializeAuth()
 
     // Listen for auth state changes
-    const {data: {subscription}} = supabase.auth.onAuthStateChange(
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state changed:', event, session?.user?.email)
+        console.log('🔐 Auth state changed:', event, session?.user?.email)
         
         if (event === 'SIGNED_IN' && session?.user) {
           try {
+            console.log('✅ User signed in, initializing auth service...')
             // Initialize auth service with the new session
             await authService.initializeAuth()
+            
             setUser(authService.currentUser)
             setDepartment(authService.department)
             
             // Set department context in database service
             if (authService.department?.id) {
+              console.log('🏢 Setting department context:', authService.department.id)
               db.setDepartmentId(authService.department.id)
             }
             
             setError(null)
           } catch (error) {
-            console.error('Error handling sign in:', error)
+            console.error('❌ Error handling sign in:', error)
             setError(error.message)
           }
         } else if (event === 'SIGNED_OUT') {
+          console.log('👋 User signed out, clearing context...')
           authService.currentUser = null
           authService.department = null
           setUser(null)
           setDepartment(null)
-          db.setDepartmentId(null)
+          db.clearDepartmentContext()
           setError(null)
         } else if (event === 'TOKEN_REFRESHED') {
-          console.log('Token refreshed successfully')
+          console.log('🔄 Token refreshed successfully')
         }
         
         setLoading(false)
@@ -69,6 +73,7 @@ export const AuthProvider = ({children}) => {
       setLoading(true)
       setError(null)
       
+      console.log('🚀 Initializing auth service...')
       // Initialize auth service
       await authService.initializeAuth()
       
@@ -78,6 +83,7 @@ export const AuthProvider = ({children}) => {
       
       // Set department context in database service
       if (authService.department?.id) {
+        console.log('🏢 Setting initial department context:', authService.department.id)
         db.setDepartmentId(authService.department.id)
       }
       
@@ -89,7 +95,7 @@ export const AuthProvider = ({children}) => {
         })
       }
     } catch (err) {
-      console.error('Auth initialization error:', err)
+      console.error('❌ Auth initialization error:', err)
       setError(err.message)
     } finally {
       setLoading(false)
@@ -101,7 +107,7 @@ export const AuthProvider = ({children}) => {
       setLoading(true)
       setError(null)
       
-      console.log('Starting signup in AuthContext...', {email, departmentName: departmentData.name})
+      console.log('📝 Starting signup in AuthContext...', { email, departmentName: departmentData.name })
       
       const result = await authService.signUp(email, password, departmentData)
       
@@ -116,20 +122,21 @@ export const AuthProvider = ({children}) => {
         setDepartment(result.department)
         
         // Set department context in database service
+        console.log('🏢 Setting department context after signup:', result.department.id)
         db.setDepartmentId(result.department.id)
         
         // Initialize fresh department data
         await db.initializeDepartmentData(result.department.id)
         
-        return {success: true}
+        return { success: true }
       } else {
         setError(result.error.message)
-        return {success: false, error: result.error}
+        return { success: false, error: result.error }
       }
     } catch (err) {
-      console.error('SignUp error in AuthContext:', err)
+      console.error('❌ SignUp error in AuthContext:', err)
       setError(err.message)
-      return {success: false, error: err}
+      return { success: false, error: err }
     } finally {
       setLoading(false)
     }
@@ -143,16 +150,16 @@ export const AuthProvider = ({children}) => {
       const result = await authService.signIn(email, password)
       
       if (result.success) {
-        analytics.track('user_signin', {email})
+        analytics.track('user_signin', { email })
         // State will be updated by the auth state change listener
-        return {success: true}
+        return { success: true }
       } else {
         setError(result.error.message)
-        return {success: false, error: result.error}
+        return { success: false, error: result.error }
       }
     } catch (err) {
       setError(err.message)
-      return {success: false, error: err}
+      return { success: false, error: err }
     } finally {
       setLoading(false)
     }
@@ -167,12 +174,12 @@ export const AuthProvider = ({children}) => {
       
       if (result.success) {
         // State will be updated by the auth state change listener
-        return {success: true}
+        return { success: true }
       } else {
-        return {success: false, error: result.error}
+        return { success: false, error: result.error }
       }
     } catch (err) {
-      return {success: false, error: err}
+      return { success: false, error: err }
     } finally {
       setLoading(false)
     }
@@ -182,11 +189,11 @@ export const AuthProvider = ({children}) => {
     try {
       const result = await authService.resetPassword(email)
       if (result.success) {
-        analytics.track('password_reset_requested', {email})
+        analytics.track('password_reset_requested', { email })
       }
       return result
     } catch (err) {
-      return {success: false, error: err}
+      return { success: false, error: err }
     }
   }
 
@@ -198,7 +205,7 @@ export const AuthProvider = ({children}) => {
       }
       return result
     } catch (err) {
-      return {success: false, error: err}
+      return { success: false, error: err }
     }
   }
 
@@ -231,7 +238,7 @@ export const AuthProvider = ({children}) => {
     if (!isSubscriptionActive()) {
       return false
     }
-    
+
     const limits = getPlanLimits()
     switch (feature) {
       case 'unlimited_equipment':

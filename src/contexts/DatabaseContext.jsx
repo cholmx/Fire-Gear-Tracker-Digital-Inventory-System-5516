@@ -1,131 +1,407 @@
-import React,{createContext,useContext,useState,useEffect} from 'react'
-import {db} from '../lib/database'
-import {checkConnection} from '../lib/supabase'
-import {useAuth} from './AuthContext'
-import {analytics} from '../lib/analytics'
+import React, { createContext, useContext, useState, useEffect } from 'react'
+import { db } from '../lib/database'
+import { checkConnection, quickConnectionTest, connectionMonitor } from '../lib/supabase'
+import { useAuth } from './AuthContext'
+import { analytics } from '../lib/analytics'
 
-const DatabaseContext=createContext()
+const DatabaseContext = createContext()
 
-export const useDatabase=()=> {
-  const context=useContext(DatabaseContext)
+export const useDatabase = () => {
+  const context = useContext(DatabaseContext)
   if (!context) {
     throw new Error('useDatabase must be used within a DatabaseProvider')
   }
   return context
 }
 
-export const DatabaseProvider=({children})=> {
-  const {user,department}=useAuth()
-  const [isConnected,setIsConnected]=useState(false)
-  const [isLoading,setIsLoading]=useState(true)
-  const [error,setError]=useState(null)
-  const [healthStatus,setHealthStatus]=useState('unknown')
+export const DatabaseProvider = ({ children }) => {
+  const { user, department, loading: authLoading } = useAuth()
+  const [isConnected, setIsConnected] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [healthStatus, setHealthStatus] = useState('unknown')
+  const [connectionDetails, setConnectionDetails] = useState({})
+  const [lastHealthCheck, setLastHealthCheck] = useState(null)
 
-  useEffect(()=> {
+  // ✅ FIXED: Wait for auth to complete before initializing database
+  useEffect(() => {
+    // Don't initialize until auth is complete
+    if (authLoading) {
+      console.log('🔄 Waiting for auth to complete...')
+      return
+    }
+
+    // If user is authenticated, wait for department context
+    if (user && !department?.id) {
+      console.log('🔄 Waiting for department context...')
+      return
+    }
+
+    console.log('✅ Auth ready, initializing database...', {
+      user: user?.email,
+      department: department?.name,
+      departmentId: department?.id
+    })
+
     initializeDatabase()
-  },[])
+  }, [authLoading, user, department])
 
-  const initializeDatabase=async ()=> {
+  // Set up connection monitoring when component mounts
+  useEffect(() => {
+    // Start connection monitoring
+    connectionMonitor.startMonitoring(30000) // Check every 30 seconds
+
+    // Listen for connection status changes
+    const removeListener = connectionMonitor.addListener((status) => {
+      console.log('📡 Connection status update:', status)
+      setIsConnected(status.connected)
+      
+      if (!status.connected && status.error) {
+        setError(status.error)
+        setHealthStatus('error')
+      }
+    })
+
+    // Cleanup on unmount
+    return () => {
+      removeListener()
+      connectionMonitor.stopMonitoring()
+    }
+  }, [])
+
+  const initializeDatabase = async () => {
     try {
       setIsLoading(true)
       setError(null)
+      console.log('🚀 Starting database initialization...')
 
       // Set department context if available
       if (department?.id) {
+        console.log('🏢 Setting department context:', department.id)
         db.setDepartmentId(department.id)
+      } else if (user) {
+        console.warn('⚠️ User authenticated but no department context available')
       }
 
-      // Check database health
-      const health=await checkConnection()
+      // Perform comprehensive health check
+      console.log('🔍 Performing comprehensive health check...')
+      const health = await checkConnection()
+      
+      setLastHealthCheck(new Date())
+      setConnectionDetails(health.details || {})
+
       if (health.healthy) {
         setIsConnected(true)
         setHealthStatus('healthy')
-        analytics.track('database_connected',{department_id: department?.id})
-        // Removed the toast notification here
+        setError(null)
+        
+        console.log('✅ Database connected and healthy')
+        
+        if (department?.id) {
+          analytics.track('database_connected', {
+            department_id: department.id,
+            user_id: user?.id,
+            connection_latency: health.latency,
+            connection_details: health.details
+          })
+        }
       } else {
+        console.error('❌ Database health check failed:', health.error)
         setError(health.error)
-        setIsConnected(false)
+        setIsConnected(health.connected) // Might be connected but not healthy
         setHealthStatus('error')
-        // Only show error toast for actual failures, not initial connection attempts
-        if (health.error && !health.error.message?.includes('fetch')) {
-          console.warn('Database connection failed:',health.error)
+
+        // Track connection issues
+        if (department?.id) {
+          analytics.trackError(health.error, {
+            context: 'database_health_check',
+            department_id: department.id,
+            user_id: user?.id,
+            health_details: health.details
+          })
         }
       }
+
     } catch (err) {
-      console.error('Database initialization error:',err)
+      console.error('❌ Database initialization error:', err)
       setError(err)
       setIsConnected(false)
       setHealthStatus('error')
-      // Only log errors, don't show toast
+      setConnectionDetails({ criticalError: err.message })
+
+      if (department?.id) {
+        analytics.trackError(err, {
+          context: 'database_initialization',
+          department_id: department.id,
+          user_id: user?.id
+        })
+      }
     } finally {
       setIsLoading(false)
     }
   }
 
-  const checkHealth=async ()=> {
-    const health=await checkConnection()
-    setHealthStatus(health.healthy ? 'healthy' : 'error')
-    setIsConnected(health.healthy)
-    return health
+  const checkHealth = async () => {
+    console.log('🔄 Performing on-demand health check...')
+    
+    try {
+      setIsLoading(true)
+      const health = await checkConnection()
+      
+      setLastHealthCheck(new Date())
+      setConnectionDetails(health.details || {})
+      setHealthStatus(health.healthy ? 'healthy' : 'error')
+      setIsConnected(health.connected)
+      
+      if (health.error) {
+        setError(health.error)
+      } else {
+        setError(null)
+      }
+
+      console.log('✅ Health check completed:', {
+        connected: health.connected,
+        healthy: health.healthy,
+        latency: health.latency
+      })
+
+      return health
+    } catch (error) {
+      console.error('❌ Health check failed:', error)
+      setHealthStatus('error')
+      setIsConnected(false)
+      setError(error)
+      
+      return {
+        connected: false,
+        healthy: false,
+        error
+      }
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const reconnect=async ()=> {
+  const reconnect = async () => {
+    console.log('🔄 Attempting to reconnect database...')
     await initializeDatabase()
   }
 
-  // Database operations
-  const query=async (table,options={})=> {
+  // Database operations with proper error handling and context validation
+  const query = async (table, options = {}) => {
     try {
-      return await db.query(table,options)
+      // Ensure we have a healthy connection
+      if (!isConnected) {
+        console.error('❌ No database connection available for query:', table)
+        throw new Error('Database not connected. Please check your connection and try again.')
+      }
+
+      // Ensure department context is available
+      const departmentId = await db.getCurrentDepartmentId()
+      if (!departmentId) {
+        console.error('❌ No department context available for query:', table)
+        throw new Error('Department context not available. Please ensure you are logged in.')
+      }
+
+      console.log('➕ Querying', table, 'with department context:', departmentId)
+      const result = await db.query(table, options)
+
+      if (department?.id) {
+        analytics.track('database_query', {
+          table,
+          department_id: department.id,
+          record_count: result.length,
+          query_options: options
+        })
+      }
+
+      return result
     } catch (error) {
-      analytics.trackError(error,{context: 'database_query',table})
+      console.error('❌ Database query error:', error)
+      analytics.trackError(error, {
+        context: 'database_query',
+        table,
+        department_id: department?.id,
+        query_options: options
+      })
+
+      // Check if it's a connection issue
+      if (error.message?.includes('fetch') || error.message?.includes('network')) {
+        setIsConnected(false)
+        setHealthStatus('error')
+        setError(error)
+      }
+
       return []
     }
   }
 
-  const insert=async (table,data,options={})=> {
+  const insert = async (table, data, options = {}) => {
     try {
-      const result=await db.insert(table,data,options)
-      analytics.track('database_insert',{table,department_id: db.currentDepartmentId})
+      // Ensure we have a healthy connection
+      if (!isConnected) {
+        console.error('❌ No database connection available for insert:', table)
+        throw new Error('Database not connected. Please check your connection and try again.')
+      }
+
+      // Ensure department context is available
+      const departmentId = await db.getCurrentDepartmentId()
+      if (!departmentId) {
+        console.error('❌ No department context available for insert:', table)
+        throw new Error('Department context not available. Please ensure you are logged in.')
+      }
+
+      console.log('➕ Inserting into', table, 'with department context:', departmentId)
+      const result = await db.insert(table, data, options)
+
+      if (department?.id) {
+        analytics.track('database_insert', {
+          table,
+          department_id: department.id,
+          data_size: JSON.stringify(data).length
+        })
+      }
+
       return result
     } catch (error) {
-      analytics.trackError(error,{context: 'database_insert',table})
+      console.error('❌ Database insert error:', error)
+      analytics.trackError(error, {
+        context: 'database_insert',
+        table,
+        department_id: department?.id
+      })
+
+      // Check if it's a connection issue
+      if (error.message?.includes('fetch') || error.message?.includes('network')) {
+        setIsConnected(false)
+        setHealthStatus('error')
+        setError(error)
+      }
+
       throw error
     }
   }
 
-  const update=async (table,id,updates,options={})=> {
+  const update = async (table, id, updates, options = {}) => {
     try {
-      const result=await db.update(table,id,updates,options)
-      analytics.track('database_update',{table,department_id: db.currentDepartmentId})
+      // Ensure we have a healthy connection
+      if (!isConnected) {
+        console.error('❌ No database connection available for update:', table)
+        throw new Error('Database not connected. Please check your connection and try again.')
+      }
+
+      // Ensure department context is available
+      const departmentId = await db.getCurrentDepartmentId()
+      if (!departmentId) {
+        console.error('❌ No department context available for update:', table)
+        throw new Error('Department context not available. Please ensure you are logged in.')
+      }
+
+      const result = await db.update(table, id, updates, options)
+
+      if (department?.id) {
+        analytics.track('database_update', {
+          table,
+          department_id: department.id,
+          record_id: id
+        })
+      }
+
       return result
     } catch (error) {
-      analytics.trackError(error,{context: 'database_update',table})
+      console.error('❌ Database update error:', error)
+      analytics.trackError(error, {
+        context: 'database_update',
+        table,
+        department_id: department?.id,
+        record_id: id
+      })
+
+      // Check if it's a connection issue
+      if (error.message?.includes('fetch') || error.message?.includes('network')) {
+        setIsConnected(false)
+        setHealthStatus('error')
+        setError(error)
+      }
+
       throw error
     }
   }
 
-  const remove=async (table,id,options={})=> {
+  const remove = async (table, id, options = {}) => {
     try {
-      await db.delete(table,id,options)
-      analytics.track('database_delete',{table,department_id: db.currentDepartmentId})
+      // Ensure we have a healthy connection
+      if (!isConnected) {
+        console.error('❌ No database connection available for delete:', table)
+        throw new Error('Database not connected. Please check your connection and try again.')
+      }
+
+      // Ensure department context is available
+      const departmentId = await db.getCurrentDepartmentId()
+      if (!departmentId) {
+        console.error('❌ No department context available for delete:', table)
+        throw new Error('Department context not available. Please ensure you are logged in.')
+      }
+
+      await db.delete(table, id, options)
+
+      if (department?.id) {
+        analytics.track('database_delete', {
+          table,
+          department_id: department.id,
+          record_id: id
+        })
+      }
+
       return true
     } catch (error) {
-      analytics.trackError(error,{context: 'database_delete',table})
+      console.error('❌ Database delete error:', error)
+      analytics.trackError(error, {
+        context: 'database_delete',
+        table,
+        department_id: department?.id,
+        record_id: id
+      })
+
+      // Check if it's a connection issue
+      if (error.message?.includes('fetch') || error.message?.includes('network')) {
+        setIsConnected(false)
+        setHealthStatus('error')
+        setError(error)
+      }
+
       throw error
     }
   }
 
-  const syncLocalToDatabase=async ()=> {
+  const syncLocalToDatabase = async () => {
     // No longer needed since we're using Supabase directly
     return true
   }
 
-  const value={
+  // Get connection statistics
+  const getConnectionStats = () => {
+    return {
+      isConnected,
+      healthStatus,
+      lastHealthCheck,
+      connectionDetails,
+      error: error?.message || null,
+      latency: connectionDetails.latency || null,
+      authenticated: connectionDetails.userId ? true : false,
+      hasProfile: connectionDetails.profileId ? true : false,
+      hasDepartment: connectionDetails.departmentId ? true : false,
+      canQueryData: connectionDetails.dataQuery || false
+    }
+  }
+
+  const value = {
     isConnected,
-    isLoading,
+    isLoading: isLoading || authLoading, // Include auth loading state
     error,
     healthStatus,
+    connectionDetails,
+    lastHealthCheck,
     reconnect,
     query,
     insert,
@@ -133,6 +409,7 @@ export const DatabaseProvider=({children})=> {
     remove,
     syncLocalToDatabase,
     checkHealth,
+    getConnectionStats,
     isDemo: false
   }
 

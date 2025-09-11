@@ -1,78 +1,77 @@
-import { useState, useEffect } from 'react';
-import supabase from '../lib/supabase';
-import { useDatabase } from '../contexts/DatabaseContext';
+import { useState, useEffect } from 'react'
+import supabase from '../lib/supabase'
+import { useDatabase } from '../contexts/DatabaseContext'
 
 export const useSupabaseData = () => {
-  const { isConnected } = useDatabase();
-  const [stations, setStations] = useState([]);
-  const [equipment, setEquipment] = useState([]);
-  const [inspections, setInspections] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const { isConnected } = useDatabase()
+  const [stations, setStations] = useState([])
+  const [equipment, setEquipment] = useState([])
+  const [inspections, setInspections] = useState([])
+  const [loading, setLoading] = useState(false)
 
   // Fetch all data from Supabase
   const fetchData = async () => {
-    if (!isConnected) return;
+    if (!isConnected) return
 
     try {
-      setLoading(true);
+      setLoading(true)
 
       // Fetch stations
       const { data: stationsData, error: stationsError } = await supabase
-        .from('stations_fd2024')
+        .from('stations')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
 
-      if (stationsError && stationsError.code !== '42P01') throw stationsError;
+      if (stationsError && stationsError.code !== '42P01') throw stationsError
 
       // Fetch equipment
       const { data: equipmentData, error: equipmentError } = await supabase
-        .from('equipment_fd2024')
+        .from('equipment')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
 
-      if (equipmentError && equipmentError.code !== '42P01') throw equipmentError;
+      if (equipmentError && equipmentError.code !== '42P01') throw equipmentError
 
       // Fetch inspections
       const { data: inspectionsData, error: inspectionsError } = await supabase
-        .from('inspections_fd2024')
+        .from('inspections')
         .select('*')
-        .order('due_date', { ascending: true });
+        .order('due_date', { ascending: true })
 
-      if (inspectionsError && inspectionsError.code !== '42P01') throw inspectionsError;
+      if (inspectionsError && inspectionsError.code !== '42P01') throw inspectionsError
 
-      setStations(stationsData || []);
-      setEquipment(equipmentData || []);
-      setInspections(inspectionsData || []);
-
+      setStations(stationsData || [])
+      setEquipment(equipmentData || [])
+      setInspections(inspectionsData || [])
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('Error fetching data:', error)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   // Add station
   const addStation = async (stationData) => {
     try {
       const { data, error } = await supabase
-        .from('stations_fd2024')
+        .from('stations')
         .insert([{
           name: stationData.name,
           address: stationData.address,
           phone: stationData.phone
         }])
         .select()
-        .single();
+        .single()
 
-      if (error) throw error;
+      if (error) throw error
 
-      setStations(prev => [data, ...prev]);
-      return data;
+      setStations(prev => [data, ...prev])
+      return data
     } catch (error) {
-      console.error('Error adding station:', error);
-      throw error;
+      console.error('Error adding station:', error)
+      throw error
     }
-  };
+  }
 
   // Add equipment
   const addEquipment = async (equipmentData) => {
@@ -87,10 +86,10 @@ export const useSupabaseData = () => {
         details: 'Equipment added to inventory',
         status: equipmentData.status,
         notes: equipmentData.notes || ''
-      }];
+      }]
 
       const { data, error } = await supabase
-        .from('equipment_fd2024')
+        .from('equipment')
         .insert([{
           name: equipmentData.name,
           serial_number: equipmentData.serialNumber,
@@ -104,9 +103,9 @@ export const useSupabaseData = () => {
           history: initialHistory
         }])
         .select()
-        .single();
+        .single()
 
-      if (error) throw error;
+      if (error) throw error
 
       // Transform data to match frontend format
       const transformedData = {
@@ -114,30 +113,30 @@ export const useSupabaseData = () => {
         serialNumber: data.serial_number,
         stationId: data.station_id,
         createdAt: data.created_at
-      };
+      }
 
-      setEquipment(prev => [transformedData, ...prev]);
-      return transformedData;
+      setEquipment(prev => [transformedData, ...prev])
+      return transformedData
     } catch (error) {
-      console.error('Error adding equipment:', error);
-      throw error;
+      console.error('Error adding equipment:', error)
+      throw error
     }
-  };
+  }
 
   // Update equipment
   const updateEquipment = async (id, updates) => {
     try {
       // Get current equipment to add history entry
       const { data: currentData, error: fetchError } = await supabase
-        .from('equipment_fd2024')
+        .from('equipment')
         .select('*')
         .eq('id', id)
-        .single();
+        .single()
 
-      if (fetchError) throw fetchError;
+      if (fetchError) throw fetchError
 
-      const currentHistory = currentData.history || [];
-      
+      const currentHistory = currentData.history || []
+
       // Create history entry
       const historyEntry = {
         id: crypto.randomUUID(),
@@ -151,12 +150,12 @@ export const useSupabaseData = () => {
         previousStatus: currentData.status,
         newStatus: updates.status,
         notes: updates.notes || ''
-      };
+      }
 
-      const updatedHistory = [...currentHistory, historyEntry];
+      const updatedHistory = [...currentHistory, historyEntry]
 
       const { data, error } = await supabase
-        .from('equipment_fd2024')
+        .from('equipment')
         .update({
           name: updates.name,
           serial_number: updates.serialNumber,
@@ -171,9 +170,9 @@ export const useSupabaseData = () => {
         })
         .eq('id', id)
         .select()
-        .single();
+        .single()
 
-      if (error) throw error;
+      if (error) throw error
 
       // Transform data to match frontend format
       const transformedData = {
@@ -181,41 +180,41 @@ export const useSupabaseData = () => {
         serialNumber: data.serial_number,
         stationId: data.station_id,
         createdAt: data.created_at
-      };
+      }
 
-      setEquipment(prev => prev.map(item => 
-        item.id === id ? transformedData : item
-      ));
-
-      return transformedData;
+      setEquipment(prev => 
+        prev.map(item => item.id === id ? transformedData : item)
+      )
+      
+      return transformedData
     } catch (error) {
-      console.error('Error updating equipment:', error);
-      throw error;
+      console.error('Error updating equipment:', error)
+      throw error
     }
-  };
+  }
 
   // Delete equipment
   const deleteEquipment = async (id) => {
     try {
       const { error } = await supabase
-        .from('equipment_fd2024')
+        .from('equipment')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
 
-      if (error) throw error;
+      if (error) throw error
 
-      setEquipment(prev => prev.filter(item => item.id !== id));
+      setEquipment(prev => prev.filter(item => item.id !== id))
     } catch (error) {
-      console.error('Error deleting equipment:', error);
-      throw error;
+      console.error('Error deleting equipment:', error)
+      throw error
     }
-  };
+  }
 
   // Add inspection
   const addInspection = async (inspectionData) => {
     try {
       const { data, error } = await supabase
-        .from('inspections_fd2024')
+        .from('inspections')
         .insert([{
           name: inspectionData.name,
           equipment_id: inspectionData.equipmentId,
@@ -228,9 +227,9 @@ export const useSupabaseData = () => {
           vendor_contact: inspectionData.vendorContact
         }])
         .select()
-        .single();
+        .single()
 
-      if (error) throw error;
+      if (error) throw error
 
       // Transform data to match frontend format
       const transformedData = {
@@ -243,21 +242,21 @@ export const useSupabaseData = () => {
         externalVendor: data.external_vendor,
         vendorContact: data.vendor_contact,
         createdAt: data.created_at
-      };
+      }
 
-      setInspections(prev => [transformedData, ...prev]);
-      return transformedData;
+      setInspections(prev => [transformedData, ...prev])
+      return transformedData
     } catch (error) {
-      console.error('Error adding inspection:', error);
-      throw error;
+      console.error('Error adding inspection:', error)
+      throw error
     }
-  };
+  }
 
   useEffect(() => {
     if (isConnected) {
-      fetchData();
+      fetchData()
     }
-  }, [isConnected]);
+  }, [isConnected])
 
   return {
     stations,
@@ -270,5 +269,5 @@ export const useSupabaseData = () => {
     deleteEquipment,
     addInspection,
     refetch: fetchData
-  };
-};
+  }
+}

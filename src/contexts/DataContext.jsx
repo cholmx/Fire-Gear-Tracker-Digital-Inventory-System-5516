@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { useDatabase } from './DatabaseContext'
+import { useAuth } from './AuthContext'
 import { v4 as uuidv4 } from 'uuid'
 import { format, addMonths, addDays, isBefore, differenceInDays } from 'date-fns'
+import { transformDataToSnakeCase, transformDataToCamelCase } from '../lib/database'
 
 const DataContext = createContext()
 
@@ -179,7 +181,7 @@ export const INSPECTION_TEMPLATES = {
     description: 'Quarterly breathing air quality testing',
     external: true
   },
-  
+
   // PERSONAL PROTECTIVE EQUIPMENT - NFPA 1851
   'turnout-advanced': {
     name: 'Turnout Gear Advanced Inspection (NFPA 1851)',
@@ -217,7 +219,7 @@ export const INSPECTION_TEMPLATES = {
     description: 'Annual inspection of structural firefighting gloves',
     external: false
   },
-  
+
   // RESCUE EQUIPMENT
   'ladder-ground-annual': {
     name: 'Ground Ladder Annual Inspection (NFPA 1932)',
@@ -264,7 +266,7 @@ export const INSPECTION_TEMPLATES = {
     description: 'Annual inspection and testing of extrication equipment',
     external: true
   },
-  
+
   // FIRE APPARATUS - NFPA 1911
   'apparatus-annual': {
     name: 'Fire Apparatus Annual Pump Test (NFPA 1911)',
@@ -293,7 +295,7 @@ export const INSPECTION_TEMPLATES = {
     description: '5-year comprehensive aerial device inspection',
     external: true
   },
-  
+
   // HOSE AND WATER SUPPLY - NFPA 1962/1964/1901
   'hose-annual': {
     name: 'Fire Hose Annual Pressure Test (NFPA 1962)',
@@ -322,7 +324,7 @@ export const INSPECTION_TEMPLATES = {
     description: 'Annual water tank inspection and testing',
     external: false
   },
-  
+
   // DETECTION EQUIPMENT
   'gas-meter-monthly': {
     name: 'Gas Meter Monthly Calibration (NFPA 1852)',
@@ -351,7 +353,7 @@ export const INSPECTION_TEMPLATES = {
     description: 'Annual calibration check per manufacturer specs',
     external: true
   },
-  
+
   // PUMPS AND HYDRAULICS - NFPA 1936
   'portable-pump-annual': {
     name: 'Portable Pump Annual Test (NFPA 1936)',
@@ -371,7 +373,7 @@ export const INSPECTION_TEMPLATES = {
     description: 'Annual inspection and testing of hydraulic tools',
     external: true
   },
-  
+
   // MEDICAL/EMS EQUIPMENT
   'defibrillator-annual': {
     name: 'Defibrillator Annual Inspection (FDA/Manufacturer)',
@@ -391,7 +393,7 @@ export const INSPECTION_TEMPLATES = {
     description: 'Annual inspection of oxygen delivery equipment',
     external: false
   },
-  
+
   // COMMUNICATIONS EQUIPMENT
   'radio-annual': {
     name: 'Two-way Radio Annual Inspection (FCC)',
@@ -411,7 +413,7 @@ export const INSPECTION_TEMPLATES = {
     description: 'Annual test of emergency communication systems',
     external: false
   },
-  
+
   // ADDITIONAL COMMON INSPECTIONS
   'generator-monthly': {
     name: 'Generator Monthly Load Test',
@@ -461,21 +463,50 @@ export const EQUIPMENT_STATUSES = {
 }
 
 export const DataProvider = ({ children }) => {
-  const { query, insert, update, remove, isConnected } = useDatabase()
+  const { query, insert, update, remove, isConnected, isLoading: dbLoading } = useDatabase()
+  const { user, department, loading: authLoading } = useAuth()
+  
   const [stations, setStations] = useState([])
   const [equipment, setEquipment] = useState([])
   const [inspections, setInspections] = useState([])
   const [categoryInspections, setCategoryInspections] = useState([])
   const [vendors, setVendors] = useState([])
+  const [dataLoading, setDataLoading] = useState(true)
 
+  // ✅ FIXED: Wait for both auth and database to be ready
   useEffect(() => {
-    if (isConnected) {
-      loadData()
+    // Don't load data until:
+    // 1. Auth is complete
+    // 2. Database is connected
+    // 3. User has department context
+    if (authLoading || dbLoading || !isConnected) {
+      console.log('⏳ Waiting for prerequisites:', {
+        authLoading,
+        dbLoading,
+        isConnected,
+        user: user?.email,
+        department: department?.name
+      })
+      return
     }
-  }, [isConnected])
+
+    if (user && department?.id) {
+      console.log('✅ Prerequisites met, loading data...')
+      loadData()
+    } else if (user && !department?.id) {
+      console.warn('⚠️ User authenticated but no department context')
+      setDataLoading(false)
+    } else {
+      console.log('👤 No user authenticated, skipping data load')
+      setDataLoading(false)
+    }
+  }, [authLoading, dbLoading, isConnected, user, department])
 
   const loadData = async () => {
     try {
+      console.log('📊 Loading all data from database...')
+      setDataLoading(true)
+
       const [stationsData, equipmentData, inspectionsData, vendorsData] = await Promise.all([
         query('stations'),
         query('equipment'),
@@ -483,65 +514,80 @@ export const DataProvider = ({ children }) => {
         query('vendors')
       ])
 
+      console.log('📊 Data loaded:', {
+        stations: stationsData.length,
+        equipment: equipmentData.length,
+        inspections: inspectionsData.length,
+        vendors: vendorsData.length
+      })
+
       setStations(stationsData)
       setEquipment(equipmentData)
-      
+
       // Separate individual and category inspections
-      const individualInspections = inspectionsData.filter(i => i.equipment_id)
-      const categoryInspections = inspectionsData.filter(i => !i.equipment_id && i.category)
-      
+      const individualInspections = inspectionsData.filter(i => i.equipmentId)
+      const categoryInspections = inspectionsData.filter(i => !i.equipmentId && i.category)
+
       setInspections(individualInspections)
       setCategoryInspections(categoryInspections)
       setVendors(vendorsData)
     } catch (error) {
-      console.error('Error loading data:', error)
+      console.error('❌ Error loading data:', error)
+    } finally {
+      setDataLoading(false)
     }
   }
 
   // Station management
   const addStation = async (stationData) => {
     try {
+      console.log('➕ Adding station:', stationData)
+      // The database service will auto-inject department_id and created_at
       const newStation = await insert('stations', {
         id: uuidv4(),
-        ...stationData,
-        created_at: new Date().toISOString()
+        ...stationData
       })
+      console.log('✅ Station added successfully:', newStation)
       setStations(prev => [...prev, newStation])
       return newStation
     } catch (error) {
-      console.error('Error adding station:', error)
+      console.error('❌ Error adding station:', error)
       throw error
     }
   }
 
   const updateStation = async (id, updates) => {
     try {
+      console.log('✏️ Updating station:', id, updates)
       const updatedStation = await update('stations', id, updates)
       setStations(prev => prev.map(station => 
         station.id === id ? updatedStation : station
       ))
       return updatedStation
     } catch (error) {
-      console.error('Error updating station:', error)
+      console.error('❌ Error updating station:', error)
       throw error
     }
   }
 
   const deleteStation = async (id) => {
     try {
+      console.log('🗑️ Deleting station:', id)
       await remove('stations', id)
       setStations(prev => prev.filter(station => station.id !== id))
       // Also remove equipment from this station
-      setEquipment(prev => prev.filter(item => item.station_id !== id))
+      setEquipment(prev => prev.filter(item => item.stationId !== id))
     } catch (error) {
-      console.error('Error deleting station:', error)
+      console.error('❌ Error deleting station:', error)
       throw error
     }
   }
 
-  // Equipment management
+  // Equipment management with proper data transformation
   const addEquipment = async (equipmentData) => {
     try {
+      console.log('➕ Adding equipment:', equipmentData)
+
       const initialHistory = [{
         id: uuidv4(),
         date: new Date().toISOString(),
@@ -553,49 +599,44 @@ export const DataProvider = ({ children }) => {
         notes: equipmentData.notes || ''
       }]
 
+      // The database service will auto-inject department_id and created_at
       const newEquipment = await insert('equipment', {
         id: uuidv4(),
         name: equipmentData.name,
-        serial_number: equipmentData.serialNumber,
+        serialNumber: equipmentData.serialNumber,
         manufacturer: equipmentData.manufacturer,
         model: equipmentData.model,
         category: equipmentData.category,
         subcategory: equipmentData.subcategory,
-        station_id: equipmentData.stationId,
+        stationId: equipmentData.stationId,
         status: equipmentData.status,
         notes: equipmentData.notes,
-        history: initialHistory,
-        created_at: new Date().toISOString()
+        history: initialHistory
       })
 
-      // Transform data to match frontend format
-      const transformedEquipment = {
-        ...newEquipment,
-        serialNumber: newEquipment.serial_number,
-        stationId: newEquipment.station_id,
-        createdAt: newEquipment.created_at
-      }
-
-      setEquipment(prev => [...prev, transformedEquipment])
-      return transformedEquipment
+      console.log('✅ Equipment added successfully:', newEquipment)
+      setEquipment(prev => [...prev, newEquipment])
+      return newEquipment
     } catch (error) {
-      console.error('Error adding equipment:', error)
+      console.error('❌ Error adding equipment:', error)
       throw error
     }
   }
 
   const updateEquipment = async (id, updates) => {
     try {
+      console.log('✏️ Updating equipment:', id, updates)
+
       // Get current equipment to add history entry
       const currentItem = equipment.find(item => item.id === id)
       if (!currentItem) throw new Error('Equipment not found')
 
       const currentHistory = currentItem.history || []
-      
+
       // Create history entry
       let actionDescription = 'Equipment Updated'
       let detailsDescription = ''
-      
+
       if (updates.status && updates.status !== currentItem.status) {
         actionDescription = 'Status Changed'
         detailsDescription = `Status changed from ${EQUIPMENT_STATUSES[currentItem.status]?.label} to ${EQUIPMENT_STATUSES[updates.status]?.label}`
@@ -619,32 +660,23 @@ export const DataProvider = ({ children }) => {
 
       const updatedEquipment = await update('equipment', id, {
         name: updates.name,
-        serial_number: updates.serialNumber,
+        serialNumber: updates.serialNumber,
         manufacturer: updates.manufacturer,
         model: updates.model,
         category: updates.category,
         subcategory: updates.subcategory,
-        station_id: updates.stationId,
+        stationId: updates.stationId,
         status: updates.status,
         notes: updates.notes,
         history: updatedHistory
       })
 
-      // Transform data to match frontend format
-      const transformedEquipment = {
-        ...updatedEquipment,
-        serialNumber: updatedEquipment.serial_number,
-        stationId: updatedEquipment.station_id,
-        createdAt: updatedEquipment.created_at
-      }
-
       setEquipment(prev => prev.map(item => 
-        item.id === id ? transformedEquipment : item
+        item.id === id ? updatedEquipment : item
       ))
-
-      return transformedEquipment
+      return updatedEquipment
     } catch (error) {
-      console.error('Error updating equipment:', error)
+      console.error('❌ Error updating equipment:', error)
       throw error
     }
   }
@@ -662,7 +694,7 @@ export const DataProvider = ({ children }) => {
       }
 
       const updatedHistory = [...(currentItem.history || []), newHistoryEntry]
-      
+
       await update('equipment', equipmentId, {
         history: updatedHistory
       })
@@ -677,17 +709,18 @@ export const DataProvider = ({ children }) => {
         return item
       }))
     } catch (error) {
-      console.error('Error adding equipment history entry:', error)
+      console.error('❌ Error adding equipment history entry:', error)
     }
   }
 
   const deleteEquipment = async (id) => {
     try {
+      console.log('🗑️ Deleting equipment:', id)
       await remove('equipment', id)
       setEquipment(prev => prev.filter(item => item.id !== id))
-      setInspections(prev => prev.filter(inspection => inspection.equipment_id !== id))
+      setInspections(prev => prev.filter(inspection => inspection.equipmentId !== id))
     } catch (error) {
-      console.error('Error deleting equipment:', error)
+      console.error('❌ Error deleting equipment:', error)
       throw error
     }
   }
@@ -695,15 +728,17 @@ export const DataProvider = ({ children }) => {
   // Vendor management
   const addVendor = async (vendorData) => {
     try {
+      console.log('➕ Adding vendor:', vendorData)
+      // The database service will auto-inject department_id and created_at
       const newVendor = await insert('vendors', {
         id: uuidv4(),
-        ...vendorData,
-        created_at: new Date().toISOString()
+        ...vendorData
       })
+      console.log('✅ Vendor added successfully:', newVendor)
       setVendors(prev => [...prev, newVendor])
       return newVendor
     } catch (error) {
-      console.error('Error adding vendor:', error)
+      console.error('❌ Error adding vendor:', error)
       throw error
     }
   }
@@ -716,7 +751,7 @@ export const DataProvider = ({ children }) => {
       ))
       return updatedVendor
     } catch (error) {
-      console.error('Error updating vendor:', error)
+      console.error('❌ Error updating vendor:', error)
       throw error
     }
   }
@@ -726,45 +761,33 @@ export const DataProvider = ({ children }) => {
       await remove('vendors', id)
       setVendors(prev => prev.filter(vendor => vendor.id !== id))
     } catch (error) {
-      console.error('Error deleting vendor:', error)
+      console.error('❌ Error deleting vendor:', error)
       throw error
     }
   }
 
-  // Inspection management
+  // Inspection management with proper data transformation
   const addInspection = async (inspectionData) => {
     try {
+      console.log('➕ Adding inspection:', inspectionData)
+      // The database service will auto-inject department_id and created_at
       const newInspection = await insert('inspections', {
         id: uuidv4(),
         name: inspectionData.name,
-        equipment_id: inspectionData.equipmentId,
+        equipmentId: inspectionData.equipmentId,
         category: inspectionData.category,
-        station_id: inspectionData.stationId,
-        vendor_id: inspectionData.vendorId,
-        template_id: inspectionData.templateId,
-        due_date: inspectionData.dueDate,
+        stationId: inspectionData.stationId,
+        vendorId: inspectionData.vendorId,
+        templateId: inspectionData.templateId,
+        dueDate: inspectionData.dueDate,
         notes: inspectionData.notes,
-        external_vendor: inspectionData.externalVendor,
-        vendor_contact: inspectionData.vendorContact,
-        created_at: new Date().toISOString()
+        externalVendor: inspectionData.externalVendor,
+        vendorContact: inspectionData.vendorContact
       })
 
-      // Transform data to match frontend format
-      const transformedInspection = {
-        ...newInspection,
-        equipmentId: newInspection.equipment_id,
-        stationId: newInspection.station_id,
-        vendorId: newInspection.vendor_id,
-        templateId: newInspection.template_id,
-        dueDate: newInspection.due_date,
-        lastCompleted: newInspection.last_completed,
-        externalVendor: newInspection.external_vendor,
-        vendorContact: newInspection.vendor_contact,
-        createdAt: newInspection.created_at
-      }
-
       if (inspectionData.equipmentId) {
-        setInspections(prev => [...prev, transformedInspection])
+        setInspections(prev => [...prev, newInspection])
+
         // Add history entry to equipment
         await addEquipmentHistoryEntry(inspectionData.equipmentId, {
           type: 'inspection_scheduled',
@@ -774,12 +797,12 @@ export const DataProvider = ({ children }) => {
           notes: inspectionData.notes || ''
         })
       } else {
-        setCategoryInspections(prev => [...prev, transformedInspection])
+        setCategoryInspections(prev => [...prev, newInspection])
       }
 
-      return transformedInspection
+      return newInspection
     } catch (error) {
-      console.error('Error adding inspection:', error)
+      console.error('❌ Error adding inspection:', error)
       throw error
     }
   }
@@ -795,29 +818,15 @@ export const DataProvider = ({ children }) => {
       
       const updatedInspection = await update('inspections', id, {
         name: updates.name,
-        due_date: updates.dueDate,
-        last_completed: updates.lastCompleted,
+        dueDate: updates.dueDate,
+        lastCompleted: updates.lastCompleted,
         status: updates.status,
         notes: updates.notes,
-        vendor_contact: updates.vendorContact
+        vendorContact: updates.vendorContact
       })
 
-      // Transform data to match frontend format
-      const transformedInspection = {
-        ...updatedInspection,
-        equipmentId: updatedInspection.equipment_id,
-        stationId: updatedInspection.station_id,
-        vendorId: updatedInspection.vendor_id,
-        templateId: updatedInspection.template_id,
-        dueDate: updatedInspection.due_date,
-        lastCompleted: updatedInspection.last_completed,
-        externalVendor: updatedInspection.external_vendor,
-        vendorContact: updatedInspection.vendor_contact,
-        createdAt: updatedInspection.created_at
-      }
-
       setInspections(prev => prev.map(inspection => 
-        inspection.id === id ? transformedInspection : inspection
+        inspection.id === id ? updatedInspection : inspection
       ))
 
       // If inspection is being completed, add history entry to equipment
@@ -834,9 +843,9 @@ export const DataProvider = ({ children }) => {
         })
       }
 
-      return transformedInspection
+      return updatedInspection
     } catch (error) {
-      console.error('Error updating inspection:', error)
+      console.error('❌ Error updating inspection:', error)
       throw error
     }
   }
@@ -847,29 +856,15 @@ export const DataProvider = ({ children }) => {
       
       const updatedInspection = await update('inspections', id, {
         name: updates.name,
-        due_date: updates.dueDate,
-        last_completed: updates.lastCompleted,
+        dueDate: updates.dueDate,
+        lastCompleted: updates.lastCompleted,
         status: updates.status,
         notes: updates.notes,
-        vendor_contact: updates.vendorContact
+        vendorContact: updates.vendorContact
       })
 
-      // Transform data to match frontend format
-      const transformedInspection = {
-        ...updatedInspection,
-        equipmentId: updatedInspection.equipment_id,
-        stationId: updatedInspection.station_id,
-        vendorId: updatedInspection.vendor_id,
-        templateId: updatedInspection.template_id,
-        dueDate: updatedInspection.due_date,
-        lastCompleted: updatedInspection.last_completed,
-        externalVendor: updatedInspection.external_vendor,
-        vendorContact: updatedInspection.vendor_contact,
-        createdAt: updatedInspection.created_at
-      }
-
       setCategoryInspections(prev => prev.map(inspection => 
-        inspection.id === id ? transformedInspection : inspection
+        inspection.id === id ? updatedInspection : inspection
       ))
 
       // If category inspection is being completed, add history entries to all applicable equipment
@@ -894,9 +889,9 @@ export const DataProvider = ({ children }) => {
         }
       }
 
-      return transformedInspection
+      return updatedInspection
     } catch (error) {
-      console.error('Error updating category inspection:', error)
+      console.error('❌ Error updating category inspection:', error)
       throw error
     }
   }
@@ -904,10 +899,9 @@ export const DataProvider = ({ children }) => {
   const deleteInspection = async (id) => {
     try {
       const inspection = inspections.find(i => i.id === id)
-      
       await remove('inspections', id)
       setInspections(prev => prev.filter(inspection => inspection.id !== id))
-      
+
       if (inspection && inspection.equipmentId) {
         await addEquipmentHistoryEntry(inspection.equipmentId, {
           type: 'inspection_cancelled',
@@ -918,7 +912,7 @@ export const DataProvider = ({ children }) => {
         })
       }
     } catch (error) {
-      console.error('Error deleting inspection:', error)
+      console.error('❌ Error deleting inspection:', error)
       throw error
     }
   }
@@ -928,7 +922,7 @@ export const DataProvider = ({ children }) => {
       await remove('inspections', id)
       setCategoryInspections(prev => prev.filter(inspection => inspection.id !== id))
     } catch (error) {
-      console.error('Error deleting category inspection:', error)
+      console.error('❌ Error deleting category inspection:', error)
       throw error
     }
   }
@@ -940,8 +934,8 @@ export const DataProvider = ({ children }) => {
 
     // Check both individual inspections and category inspections
     const equipmentInspections = inspections.filter(i => i.equipmentId === equipmentId)
-    const categoryInspectionsForEquipment = categoryInspections.filter(i => 
-      i.category === equipmentItem.category && 
+    const categoryInspectionsForEquipment = categoryInspections.filter(i =>
+      i.category === equipmentItem.category &&
       (!i.stationId || i.stationId === equipmentItem.stationId)
     )
 
@@ -1006,6 +1000,8 @@ export const DataProvider = ({ children }) => {
     inspections,
     categoryInspections,
     vendors,
+    // Include loading state that accounts for all dependencies
+    loading: authLoading || dbLoading || dataLoading,
     addStation,
     updateStation,
     deleteStation,

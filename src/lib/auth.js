@@ -1,6 +1,7 @@
-// Authentication service using Supabase
-import supabase from './supabase'
-import {toast} from './toast'
+// Authentication service using Supabase with atomic signup operations
+import supabase, { signupOperations, handleSupabaseError } from './supabase'
+import { toast } from './toast'
+import { transformDataToSnakeCase, transformDataToCamelCase } from './database'
 
 export class AuthService {
   constructor() {
@@ -11,33 +12,41 @@ export class AuthService {
   async initializeAuth() {
     try {
       // Get current session
-      const {data: {session}} = await supabase.auth.getSession()
+      const { data: { session } } = await supabase.auth.getSession()
       
       if (session?.user) {
-        // Get or create user profile
-        const userProfile = await this.getOrCreateUserProfile(session.user)
+        // Check if user has completed signup
+        const signupStatus = await this.checkSignupStatus(session.user.id)
         
-        this.currentUser = {
-          id: session.user.id,
-          email: session.user.email,
-          name: userProfile.firstName ? `${userProfile.firstName} ${userProfile.lastName}` : 'User',
-          firstName: userProfile.firstName,
-          lastName: userProfile.lastName,
-          role: userProfile.role || 'fire-chief',
-          department: userProfile.departmentName,
-          departmentId: userProfile.departmentId,
-          plan: userProfile.plan || 'free',
-          lastLogin: new Date().toISOString(),
-          createdAt: session.user.created_at
-        }
+        if (signupStatus.status === 'completed') {
+          // Get or create user profile
+          const userProfile = await this.getOrCreateUserProfile(session.user)
+          
+          this.currentUser = {
+            id: session.user.id,
+            email: session.user.email,
+            name: userProfile.firstName ? `${userProfile.firstName} ${userProfile.lastName}` : 'User',
+            firstName: userProfile.firstName,
+            lastName: userProfile.lastName,
+            role: userProfile.role || 'fire-chief',
+            department: userProfile.departmentName,
+            departmentId: userProfile.departmentId,
+            plan: userProfile.plan || 'free',
+            lastLogin: new Date().toISOString(),
+            createdAt: session.user.created_at
+          }
 
-        this.department = {
-          id: userProfile.departmentId,
-          name: userProfile.departmentName,
-          adminEmail: session.user.email,
-          plan: userProfile.plan || 'free',
-          subscriptionStatus: 'active',
-          createdAt: userProfile.departmentCreatedAt
+          this.department = {
+            id: userProfile.departmentId,
+            name: userProfile.departmentName,
+            adminEmail: session.user.email,
+            plan: userProfile.plan || 'free',
+            subscriptionStatus: 'active',
+            createdAt: userProfile.departmentCreatedAt
+          }
+        } else {
+          // User needs to complete signup
+          console.log('User needs to complete signup process')
         }
       }
     } catch (error) {
@@ -45,10 +54,47 @@ export class AuthService {
     }
   }
 
+  async checkSignupStatus(userId) {
+    try {
+      const { data, error } = await supabase.rpc('get_user_signup_status', {
+        auth_user_id: userId
+      })
+
+      if (error) {
+        console.error('Error checking signup status:', error)
+        return { status: 'error', message: error.message }
+      }
+
+      return data
+    } catch (error) {
+      console.error('Error checking signup status:', error)
+      return { status: 'error', message: error.message }
+    }
+  }
+
+  async validateSignupData(email, departmentName) {
+    try {
+      const { data, error } = await supabase.rpc('can_signup', {
+        user_email: email,
+        dept_name: departmentName
+      })
+
+      if (error) {
+        console.error('Error validating signup data:', error)
+        return { allowed: false, reason: 'validation_error', message: error.message }
+      }
+
+      return data
+    } catch (error) {
+      console.error('Error validating signup data:', error)
+      return { allowed: false, reason: 'validation_error', message: error.message }
+    }
+  }
+
   async getOrCreateUserProfile(user) {
     try {
       // First, try to get existing user profile
-      const {data: existingProfile, error: profileError} = await supabase
+      const { data: existingProfile, error: profileError } = await supabase
         .from('user_profiles')
         .select(`
           *,
@@ -58,12 +104,14 @@ export class AuthService {
         .single()
 
       if (existingProfile && !profileError) {
+        // Transform the data to camelCase for consistency
+        const transformedProfile = transformDataToCamelCase(existingProfile)
         return {
-          ...existingProfile,
-          departmentId: existingProfile.department.id,
-          departmentName: existingProfile.department.name,
-          plan: existingProfile.department.plan,
-          departmentCreatedAt: existingProfile.department.created_at
+          ...transformedProfile,
+          departmentId: transformedProfile.department.id,
+          departmentName: transformedProfile.department.name,
+          plan: transformedProfile.department.plan,
+          departmentCreatedAt: transformedProfile.department.createdAt
         }
       }
 
@@ -78,10 +126,19 @@ export class AuthService {
 
   async signUp(email, password, departmentData) {
     try {
-      console.log('Starting signup process...', {email, departmentName: departmentData.name})
+      console.log('🚀 Starting atomic signup process...', {
+        email,
+        departmentName: departmentData.name
+      })
 
-      // Step 1: Create the auth user
-      const {data: authData, error: authError} = await supabase.auth.signUp({
+      // Step 1: Validate signup data first
+      const validation = await this.validateSignupData(email, departmentData.name)
+      if (!validation.allowed) {
+        throw new Error(validation.message)
+      }
+
+      // Step 2: Create the auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -95,102 +152,72 @@ export class AuthService {
 
       if (authError) {
         console.error('Auth signup error:', authError)
-        throw authError
+        const { error: handledError } = handleSupabaseError(authError, 'signup - auth creation')
+        throw handledError
       }
 
       if (!authData.user) {
         throw new Error('Failed to create user account')
       }
 
-      console.log('Auth user created:', authData.user.id)
+      console.log('✅ Auth user created:', authData.user.id)
 
-      // Step 2: Create department
-      const {data: department, error: deptError} = await supabase
-        .from('departments')
-        .insert({
-          name: departmentData.name,
-          admin_email: email,
-          plan: departmentData.selectedPlan || 'free',
-          subscription_status: 'active'
-        })
-        .select()
-        .single()
+      // Wait a moment for auth state to propagate
+      await new Promise(resolve => setTimeout(resolve, 1000))
 
-      if (deptError) {
-        console.error('Department creation error:', deptError)
-        throw new Error('Failed to create department: ' + deptError.message)
-      }
+      // Step 3: Create department, profile, and initial data atomically using RPC
+      const { data: signupResult, error: signupError } = await supabase.rpc('signup_user', {
+        auth_user_id: authData.user.id,
+        user_email: email,
+        dept_name: departmentData.name,
+        admin_first_name: departmentData.adminFirstName,
+        admin_last_name: departmentData.adminLastName,
+        selected_plan: departmentData.selectedPlan || 'free'
+      })
 
-      console.log('Department created:', department.id)
-
-      // Step 3: Create user profile
-      const {data: profile, error: profileError} = await supabase
-        .from('user_profiles')
-        .insert({
-          user_id: authData.user.id,
-          department_id: department.id,
-          email: email,
-          first_name: departmentData.adminFirstName,
-          last_name: departmentData.adminLastName,
-          role: 'fire-chief',
-          status: 'active'
-        })
-        .select()
-        .single()
-
-      if (profileError) {
-        console.error('Profile creation error:', profileError)
-        throw new Error('Failed to create user profile: ' + profileError.message)
-      }
-
-      console.log('User profile created:', profile.id)
-
-      // Step 4: Initialize subscription usage tracking
-      const resources = ['stations', 'equipment', 'users']
-      for (const resource of resources) {
-        const {error: usageError} = await supabase
-          .from('subscription_usage')
-          .insert({
-            department_id: department.id,
-            resource_type: resource,
-            current_usage: resource === 'users' ? 1 : 0 // Start with 1 user (the admin)
-          })
-
-        if (usageError) {
-          console.warn('Usage tracking setup warning:', usageError)
-          // Don't fail signup for this
+      if (signupError) {
+        console.error('🔥 Atomic signup failed:', signupError)
+        
+        // Try to clean up the auth user if department creation failed
+        try {
+          await supabase.auth.signOut()
+          console.log('🧹 Cleaned up auth user after failed signup')
+        } catch (cleanupError) {
+          console.error('Failed to clean up auth user:', cleanupError)
         }
+        
+        throw new Error(`Signup failed: ${signupError.message}`)
       }
 
-      // Step 5: Create default station
-      const {data: defaultStation, error: stationError} = await supabase
-        .from('stations')
-        .insert({
-          department_id: department.id,
-          name: 'Station 1',
-          address: '',
-          phone: '',
-          created_by: profile.id
-        })
-        .select()
-        .single()
-
-      if (stationError) {
-        console.warn('Default station creation warning:', stationError)
-        // Don't fail signup for this
-      } else {
-        console.log('Default station created:', defaultStation.id)
+      if (!signupResult || !signupResult.success) {
+        console.error('🔥 Signup RPC returned failure:', signupResult)
+        
+        // Clean up auth user
+        try {
+          await supabase.auth.signOut()
+          console.log('🧹 Cleaned up auth user after failed signup')
+        } catch (cleanupError) {
+          console.error('Failed to clean up auth user:', cleanupError)
+        }
+        
+        const errorMessage = signupResult?.error?.message || 'Unknown signup error'
+        throw new Error(errorMessage)
       }
 
-      // Set up the user objects
+      console.log('✅ Atomic signup completed successfully:', signupResult)
+
+      // Set up the user objects from the RPC result
+      const department = signupResult.department
+      const userProfile = signupResult.user_profile
+
       this.currentUser = {
         id: authData.user.id,
         email: authData.user.email,
-        name: `${departmentData.adminFirstName} ${departmentData.adminLastName}`,
-        firstName: departmentData.adminFirstName,
-        lastName: departmentData.adminLastName,
+        name: `${userProfile.first_name} ${userProfile.last_name}`,
+        firstName: userProfile.first_name,
+        lastName: userProfile.last_name,
         role: 'fire-chief',
-        department: departmentData.name,
+        department: department.name,
         departmentId: department.id,
         plan: department.plan,
         createdAt: authData.user.created_at
@@ -198,22 +225,25 @@ export class AuthService {
 
       this.department = {
         id: department.id,
-        name: departmentData.name,
-        adminEmail: email,
+        name: department.name,
+        adminEmail: department.admin_email,
         plan: department.plan,
         subscriptionStatus: department.subscription_status,
         createdAt: department.created_at
       }
 
       toast.success('Account created successfully!')
+      
       return {
         success: true,
         user: this.currentUser,
         department: this.department
       }
+
     } catch (error) {
-      console.error('Sign up error:', error)
+      console.error('❌ Sign up error:', error)
       toast.error('Failed to create account: ' + error.message)
+      
       return {
         success: false,
         error
@@ -223,17 +253,27 @@ export class AuthService {
 
   async signIn(email, password) {
     try {
-      const {data, error} = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       })
 
-      if (error) throw error
+      if (error) {
+        const { error: handledError } = handleSupabaseError(error, 'signin')
+        throw handledError
+      }
 
       if (data.user) {
+        // Check if user has completed signup
+        const signupStatus = await this.checkSignupStatus(data.user.id)
+        
+        if (signupStatus.status !== 'completed') {
+          throw new Error('Account setup is incomplete. Please complete your registration.')
+        }
+
         // Get user profile and department info
         const userProfile = await this.getOrCreateUserProfile(data.user)
-
+        
         this.currentUser = {
           id: data.user.id,
           email: data.user.email,
@@ -257,71 +297,65 @@ export class AuthService {
           createdAt: userProfile.departmentCreatedAt
         }
 
-        // Update last login
+        // Update last login (data will be automatically transformed to snake_case)
         await supabase
           .from('user_profiles')
-          .update({last_login: new Date().toISOString()})
+          .update({ lastLogin: new Date().toISOString() })
           .eq('user_id', data.user.id)
 
         toast.success('Successfully signed in!')
-        return {
-          success: true,
-          user: this.currentUser
-        }
+        return { success: true, user: this.currentUser }
       }
     } catch (error) {
       console.error('Sign in error:', error)
       toast.error('Failed to sign in: ' + error.message)
-      return {
-        success: false,
-        error
-      }
+      return { success: false, error }
     }
   }
 
   async signOut() {
     try {
-      const {error} = await supabase.auth.signOut()
+      const { error } = await supabase.auth.signOut()
       if (error) throw error
 
       this.currentUser = null
       this.department = null
       toast.success('Successfully signed out')
-      return {success: true}
+      return { success: true }
     } catch (error) {
       console.error('Sign out error:', error)
       toast.error('Failed to sign out')
-      return {success: false, error}
+      return { success: false, error }
     }
   }
 
   async resetPassword(email) {
     try {
-      const {error} = await supabase.auth.resetPasswordForEmail(email)
+      const { error } = await supabase.auth.resetPasswordForEmail(email)
       if (error) throw error
 
       toast.success('Password reset email sent')
-      return {success: true}
+      return { success: true }
     } catch (error) {
       console.error('Password reset error:', error)
       toast.error('Failed to send reset email')
-      return {success: false, error}
+      return { success: false, error }
     }
   }
 
   async updatePassword(newPassword) {
     try {
-      const {error} = await supabase.auth.updateUser({
+      const { error } = await supabase.auth.updateUser({
         password: newPassword
       })
       if (error) throw error
 
       toast.success('Password updated successfully')
-      return {success: true}
+      return { success: true }
     } catch (error) {
       console.error('Password update error:', error)
       toast.error('Failed to update password')
-      return {success: false, error}
+      return { success: false, error }
     }
   }
 
@@ -335,7 +369,7 @@ export class AuthService {
   // Check subscription status
   isSubscriptionActive() {
     if (!this.department) return false
-    const {subscriptionStatus, trialEndsAt} = this.department
+    const { subscriptionStatus, trialEndsAt } = this.department
 
     // Active subscription
     if (subscriptionStatus === 'active') return true
@@ -443,5 +477,5 @@ const USER_ROLES = {
   }
 }
 
-export {USER_ROLES}
+export { USER_ROLES }
 export const authService = new AuthService()

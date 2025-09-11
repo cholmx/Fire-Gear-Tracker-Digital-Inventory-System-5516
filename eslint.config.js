@@ -14,18 +14,18 @@ export default [
         ...globals.browser,
         ...globals.node,
         React: true,
-        JSX: true
+        JSX: true,
       },
       parserOptions: {
         ecmaFeatures: {
-          jsx: true
+          jsx: true,
         },
-        sourceType: 'module'
-      }
+        sourceType: 'module',
+      },
     },
     plugins: {
       'react-hooks': reactHooks,
-      'react-refresh': reactRefresh
+      'react-refresh': reactRefresh,
     },
     rules: {
       'no-undef': 'error',
@@ -34,7 +34,8 @@ export default [
       'react-refresh/only-export-components': 'off',
       'no-unused-vars': 'off',
       'no-case-declarations': 'off',
-      'no-useless-escape': 'off'
-    }
-  }
+      'no-useless-escape': 'off',
+      'no-unexpected-multiline': 'off',
+    },
+  },
 ]
