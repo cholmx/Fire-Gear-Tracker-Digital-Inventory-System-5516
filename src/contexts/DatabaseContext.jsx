@@ -1,82 +1,146 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import supabase from '../lib/supabase';
+import React,{createContext,useContext,useState,useEffect} from 'react'
+import {db} from '../lib/database'
+import {checkConnection} from '../lib/supabase'
+import {useAuth} from './AuthContext'
+import {analytics} from '../lib/analytics'
 
-const DatabaseContext = createContext();
+const DatabaseContext=createContext()
 
-export const useDatabase = () => {
-  const context = useContext(DatabaseContext);
+export const useDatabase=()=> {
+  const context=useContext(DatabaseContext)
   if (!context) {
-    throw new Error('useDatabase must be used within a DatabaseProvider');
+    throw new Error('useDatabase must be used within a DatabaseProvider')
   }
-  return context;
-};
+  return context
+}
 
-export const DatabaseProvider = ({ children }) => {
-  const [isConnected, setIsConnected] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
+export const DatabaseProvider=({children})=> {
+  const {user,department}=useAuth()
+  const [isConnected,setIsConnected]=useState(false)
+  const [isLoading,setIsLoading]=useState(true)
+  const [error,setError]=useState(null)
+  const [healthStatus,setHealthStatus]=useState('unknown')
 
-  useEffect(() => {
-    checkConnection();
-  }, []);
+  useEffect(()=> {
+    initializeDatabase()
+  },[])
 
-  const checkConnection = async () => {
+  const initializeDatabase=async ()=> {
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Test Supabase connection
-      const { data, error } = await supabase
-        .from('stations_fd2024')
-        .select('count', { count: 'exact', head: true });
-      
-      if (error && error.code === '42P01') {
-        // Table doesn't exist yet - that's okay, we can still connect
-        setIsConnected(true);
-        console.log('Supabase connected - database needs initialization');
-      } else if (error) {
-        throw error;
+      setIsLoading(true)
+      setError(null)
+
+      // Set department context if available
+      if (department?.id) {
+        db.setDepartmentId(department.id)
+      }
+
+      // Check database health
+      const health=await checkConnection()
+      if (health.healthy) {
+        setIsConnected(true)
+        setHealthStatus('healthy')
+        analytics.track('database_connected',{department_id: department?.id})
+        // Removed the toast notification here
       } else {
-        setIsConnected(true);
-        console.log('Supabase connected successfully');
+        setError(health.error)
+        setIsConnected(false)
+        setHealthStatus('error')
+        // Only show error toast for actual failures, not initial connection attempts
+        if (health.error && !health.error.message?.includes('fetch')) {
+          console.warn('Database connection failed:',health.error)
+        }
       }
     } catch (err) {
-      console.log('Supabase connection failed:', err.message);
-      setIsConnected(false);
-      setError(err.message);
+      console.error('Database initialization error:',err)
+      setError(err)
+      setIsConnected(false)
+      setHealthStatus('error')
+      // Only log errors, don't show toast
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
-  const initializeDatabase = async () => {
+  const checkHealth=async ()=> {
+    const health=await checkConnection()
+    setHealthStatus(health.healthy ? 'healthy' : 'error')
+    setIsConnected(health.healthy)
+    return health
+  }
+
+  const reconnect=async ()=> {
+    await initializeDatabase()
+  }
+
+  // Database operations
+  const query=async (table,options={})=> {
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      // This would typically run SQL to create tables
-      // For now, we'll just mark as successful
-      setIsConnected(true);
-      return true;
-    } catch (err) {
-      setError(err.message);
-      return false;
-    } finally {
-      setIsLoading(false);
+      return await db.query(table,options)
+    } catch (error) {
+      analytics.trackError(error,{context: 'database_query',table})
+      return []
     }
-  };
+  }
 
-  const value = {
+  const insert=async (table,data,options={})=> {
+    try {
+      const result=await db.insert(table,data,options)
+      analytics.track('database_insert',{table,department_id: db.currentDepartmentId})
+      return result
+    } catch (error) {
+      analytics.trackError(error,{context: 'database_insert',table})
+      throw error
+    }
+  }
+
+  const update=async (table,id,updates,options={})=> {
+    try {
+      const result=await db.update(table,id,updates,options)
+      analytics.track('database_update',{table,department_id: db.currentDepartmentId})
+      return result
+    } catch (error) {
+      analytics.trackError(error,{context: 'database_update',table})
+      throw error
+    }
+  }
+
+  const remove=async (table,id,options={})=> {
+    try {
+      await db.delete(table,id,options)
+      analytics.track('database_delete',{table,department_id: db.currentDepartmentId})
+      return true
+    } catch (error) {
+      analytics.trackError(error,{context: 'database_delete',table})
+      throw error
+    }
+  }
+
+  const syncLocalToDatabase=async ()=> {
+    // No longer needed since we're using Supabase directly
+    return true
+  }
+
+  const value={
     isConnected,
     isLoading,
     error,
-    checkConnection,
-    initializeDatabase
-  };
+    healthStatus,
+    reconnect,
+    query,
+    insert,
+    update,
+    remove,
+    syncLocalToDatabase,
+    checkHealth,
+    isDemo: false
+  }
 
   return (
     <DatabaseContext.Provider value={value}>
       {children}
     </DatabaseContext.Provider>
-  );
-};
+  )
+}
+
+export default DatabaseContext

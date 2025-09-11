@@ -1,42 +1,42 @@
-import React, { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import SafeIcon from '../common/SafeIcon';
-import * as FiIcons from 'react-icons/fi';
+import React, { useState } from 'react'
+import { Navigate, useNavigate, Link } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+import SafeIcon from '../common/SafeIcon'
+import * as FiIcons from 'react-icons/fi'
 
-const { FiShield, FiMail, FiLock, FiEye, FiEyeOff, FiArrowLeft } = FiIcons;
+const { FiMail, FiLock, FiEye, FiEyeOff, FiArrowLeft } = FiIcons
 
 const Login = () => {
-  const { user, login } = useAuth();
-  const navigate = useNavigate();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const { user, login, loading } = useAuth()
+  const navigate = useNavigate()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
 
   if (user) {
-    return <Navigate to="/app" />;
+    return <Navigate to="/app" />
   }
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
+    e.preventDefault()
+    setIsLoading(true)
+    setError('')
+    
     try {
-      const success = await login(email, password);
-      if (success) {
-        navigate('/app');
+      const result = await login(email, password)
+      if (result.success) {
+        navigate('/app')
       } else {
-        setError('Invalid email or password');
+        setError(result.error?.message || 'Invalid email or password')
       }
     } catch (err) {
-      setError('An error occurred. Please try again.');
+      setError('An error occurred. Please try again.')
     } finally {
-      setLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
   return (
     <div className="min-h-screen bg-mission-bg-primary font-inter flex items-center justify-center p-4">
@@ -53,7 +53,7 @@ const Login = () => {
 
           <div className="text-center mb-8">
             <div className="flex items-center justify-center w-16 h-16 bg-fire-red rounded-lg mx-auto mb-4">
-              <SafeIcon icon={FiShield} className="w-8 h-8 text-white" />
+              <SafeIcon icon="ShieldCheck" className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-inter-tight font-bold text-mission-text-primary">Fire Gear Tracker</h1>
             <p className="text-mission-text-muted mt-2 font-inter">Sign in to manage your equipment</p>
@@ -71,7 +71,7 @@ const Login = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-mission-bg-tertiary border border-mission-border rounded-lg text-mission-text-primary placeholder-mission-text-muted focus:outline-none focus:ring-2 focus:ring-fire-red focus:border-transparent font-inter"
-                  placeholder="Enter your email"
+                  placeholder="your.email@department.gov"
                   required
                 />
               </div>
@@ -88,7 +88,7 @@ const Login = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-12 py-3 bg-mission-bg-tertiary border border-mission-border rounded-lg text-mission-text-primary placeholder-mission-text-muted focus:outline-none focus:ring-2 focus:ring-fire-red focus:border-transparent font-inter"
-                  placeholder="Enter your password"
+                  placeholder="Your password"
                   required
                 />
                 <button
@@ -109,22 +109,31 @@ const Login = () => {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={isLoading}
               className="w-full bg-fire-red hover:bg-fire-red-dark disabled:opacity-50 disabled:cursor-not-allowed text-white font-inter font-medium py-3 px-4 rounded-lg transition-colors"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {isLoading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
 
           <div className="mt-6 text-center">
-            <p className="text-mission-text-muted text-sm font-inter">
-              Demo: Use any email and password to sign in
+            <p className="text-mission-text-muted text-sm font-inter mb-3">
+              Don't have an account?{' '}
+              <Link to="/signup" className="text-fire-red hover:text-fire-red-light font-medium">
+                Sign up
+              </Link>
             </p>
+            
+            <div className="text-xs text-mission-text-muted">
+              <Link to="/reset-password" className="hover:text-mission-text-secondary">
+                Forgot your password?
+              </Link>
+            </div>
           </div>
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default Login;
+export default Login

@@ -4,8 +4,6 @@ import {useAuth} from '../contexts/AuthContext';
 import {useData} from '../contexts/DataContext';
 import {useDatabase} from '../contexts/DatabaseContext';
 import SafeIcon from '../common/SafeIcon';
-import DatabaseStatus from '../components/DatabaseStatus';
-import DatabaseSetup from '../components/DatabaseSetup';
 import InspectionBadge from '../components/InspectionBadge';
 import StatusBadge from '../components/StatusBadge';
 import {format,differenceInDays} from 'date-fns';
@@ -33,6 +31,7 @@ const Dashboard=()=> {
       const status=getInspectionStatus(item.id);
       return status && (status.status==='past-due' || status.status==='critical');
     }).length;
+
     return {total,inService,outOfService,criticalInspections};
   };
 
@@ -48,9 +47,8 @@ const Dashboard=()=> {
       const dueDate=new Date(inspection.dueDate);
       const daysUntilDue=differenceInDays(dueDate,today);
 
-      if (daysUntilDue <=7) {
-        // Due within 7 days or overdue
-        const equipmentName=inspection.equipmentId 
+      if (daysUntilDue <=7) { // Due within 7 days or overdue
+        const equipmentName=inspection.equipmentId
           ? equipment.find(e=> e.id===inspection.equipmentId)?.name || 'Unknown Equipment'
           : `${inspection.category} Category`;
 
@@ -69,7 +67,7 @@ const Dashboard=()=> {
       }
     });
 
-    // Get equipment that's out of service, out for repair, or cannot be located
+    // Get equipment that's out of service,out for repair,or cannot be located
     equipment.forEach(item=> {
       if (item.status !=='in-service') {
         const statusLabels={
@@ -99,7 +97,7 @@ const Dashboard=()=> {
       if (priorityOrder[a.priority] !==priorityOrder[b.priority]) {
         return priorityOrder[a.priority] - priorityOrder[b.priority];
       }
-      // For inspections, sort by due date
+      // For inspections,sort by due date
       if (a.type==='inspection' && b.type==='inspection') {
         return new Date(a.dueDate) - new Date(b.dueDate);
       }
@@ -139,13 +137,12 @@ const Dashboard=()=> {
             <div className="status-dot status-success w-2 h-2 bg-mission-accent-green rounded-full"></div>
           </div>
           <p className="text-base font-inter text-mission-text-secondary">
-            {getGreeting()}, {user?.name}
+            {getGreeting()},{user?.name}
           </p>
         </div>
         <div className="flex items-center space-x-3 mt-4 sm:mt-0">
-          {!isConnected && <DatabaseSetup />}
           <div className="text-sm font-roboto-mono text-mission-text-muted">
-            {new Date().toLocaleString('en-US', {
+            {new Date().toLocaleString('en-US',{
               hour12: false,
               hour: '2-digit',
               minute: '2-digit',
@@ -154,24 +151,6 @@ const Dashboard=()=> {
           </div>
         </div>
       </div>
-
-      {/* Database Connection Status */}
-      {!isConnected && (
-        <div className="bg-blue-950/20 border border-blue-800/30 rounded-md p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="status-dot w-2 h-2 bg-blue-500 rounded-full"></div>
-              <div>
-                <h3 className="text-base font-inter-tight font-bold text-blue-400">Local Storage Mode</h3>
-                <p className="text-sm font-inter text-blue-300">
-                  Connect to PostgreSQL database to enable persistence and multi-user access
-                </p>
-              </div>
-            </div>
-            <DatabaseSetup />
-          </div>
-        </div>
-      )}
 
       {/* Critical Alerts */}
       {stats.criticalInspections > 0 && (
@@ -217,7 +196,7 @@ const Dashboard=()=> {
             )}
           </div>
           <div className="p-4">
-            {criticalAlerts.length === 0 ? (
+            {criticalAlerts.length===0 ? (
               <div className="text-center py-6">
                 <SafeIcon icon={FiCheckSquare} className="w-10 h-10 text-mission-accent-green mx-auto mb-3" />
                 <p className="text-sm font-inter text-mission-accent-green mb-1">All Clear</p>
@@ -225,7 +204,7 @@ const Dashboard=()=> {
               </div>
             ) : (
               <div className="space-y-3 max-h-80 overflow-y-auto">
-                {criticalAlerts.map((alert) => (
+                {criticalAlerts.map((alert)=> (
                   <Link
                     key={alert.id}
                     to={alert.link}
@@ -260,7 +239,7 @@ const Dashboard=()=> {
                             {alert.notes && (
                               <div className="mt-2 p-2 bg-mission-bg-primary rounded border-l-2 border-mission-accent-orange">
                                 <p className="text-xs font-inter text-mission-text-muted">
-                                  <strong>Notes:</strong> {alert.notes.length > 100 ? `${alert.notes.substring(0, 100)}...` : alert.notes}
+                                  <strong>Notes:</strong> {alert.notes.length > 100 ? `${alert.notes.substring(0,100)}...` : alert.notes}
                                 </p>
                               </div>
                             )}
@@ -283,7 +262,7 @@ const Dashboard=()=> {
             <h2 className="text-base font-inter-tight font-bold text-mission-text-primary">Recent Activity</h2>
           </div>
           <div className="p-4">
-            {equipment.length === 0 ? (
+            {equipment.length===0 ? (
               <div className="text-center py-6">
                 <SafeIcon icon={FiPackage} className="w-10 h-10 text-mission-text-muted mx-auto mb-3" />
                 <p className="text-sm font-inter text-mission-text-muted mb-1">No equipment data</p>
@@ -299,9 +278,9 @@ const Dashboard=()=> {
             ) : (
               <div className="space-y-4">
                 {equipment
-                  .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-                  .slice(0, 5)
-                  .map((item) => (
+                  .sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt))
+                  .slice(0,5)
+                  .map((item)=> (
                     <div key={item.id} className="flex items-center space-x-3 p-3 bg-mission-bg-tertiary hover:bg-mission-bg-primary rounded-lg transition-colors">
                       <div className="flex items-center justify-center w-8 h-8 bg-mission-accent-blue/20 rounded-lg">
                         <SafeIcon icon={FiPackage} className="w-4 h-4 text-mission-accent-blue" />
@@ -317,7 +296,7 @@ const Dashboard=()=> {
                       <StatusBadge status={item.status} />
                     </div>
                   ))}
-                
+
                 {equipment.length > 5 && (
                   <Link
                     to="/app/equipment"
@@ -330,7 +309,6 @@ const Dashboard=()=> {
                 {/* Quick Actions */}
                 <div className="pt-4 border-t border-mission-border space-y-3">
                   <h3 className="text-sm font-inter font-medium text-mission-text-primary mb-3">Quick Actions</h3>
-                  
                   <Link
                     to="/app/stations"
                     className="flex items-center space-x-3 p-3 bg-mission-bg-tertiary hover:bg-mission-bg-primary rounded-md transition-colors group"
