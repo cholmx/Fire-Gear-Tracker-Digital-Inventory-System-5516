@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { ValidationService } from '../lib/validation'
+import { stripeService, STRIPE_PLANS } from '../lib/stripe'
 import SafeIcon from '../common/SafeIcon'
 import LoadingSpinner from '../components/LoadingSpinner'
 import * as FiIcons from 'react-icons/fi'
@@ -37,70 +38,12 @@ const SignUp = () => {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [validationInProgress, setValidationInProgress] = useState(false)
 
-  const plans = [
-    {
-      id: 'free',
-      name: 'Free',
-      monthlyPrice: 0,
-      yearlyPrice: 0,
-      description: 'Perfect for small departments getting started',
-      stations: '1 Station',
-      equipment: '50 Equipment Items',
-      popular: false,
-      features: [
-        'Equipment tracking & inventory',
-        'Inspection scheduling',
-        'Equipment history',
-        'Cloud storage & sync',
-        'NFPA compliance templates'
-      ]
-    },
-    {
-      id: 'professional',
-      name: 'Professional',
-      monthlyPrice: 14,
-      yearlyPrice: 140,
-      description: 'Ideal for growing departments',
-      stations: '3 Stations',
-      equipment: '300 Equipment Items',
-      popular: true,
-      paymentLinks: {
-        monthly: 'https://buy.stripe.com/bJecN71MXc5r0NXeqecbC03',
-        yearly: 'https://buy.stripe.com/00waEZezJb1n8gp0zocbC06'
-      },
-      features: [
-        'Everything in Free plan',
-        'Multi-station management',
-        'Advanced reporting',
-        'Real-time sync',
-        'Email support'
-      ]
-    },
-    {
-      id: 'unlimited',
-      name: 'Unlimited',
-      monthlyPrice: 28,
-      yearlyPrice: 280,
-      description: 'For large departments and districts',
-      stations: 'Unlimited Stations',
-      equipment: 'Unlimited Equipment',
-      popular: false,
-      paymentLinks: {
-        monthly: 'https://buy.stripe.com/3cI7sNcrBc5rgMV2HwcbC05',
-        yearly: 'https://buy.stripe.com/3cIfZjfDNfhDcwFdmacbC04'
-      },
-      features: [
-        'Everything in Professional plan',
-        'Unlimited stations & equipment',
-        'Advanced analytics',
-        'Priority support'
-      ]
-    }
-  ]
+  const plans = Object.values(STRIPE_PLANS)
 
   const getPrice = (plan) => {
-    if (plan.monthlyPrice === 0) return 'Free'
-    return formData.billingCycle === 'monthly' ? `$${plan.monthlyPrice}` : `$${plan.yearlyPrice}`
+    return stripeService.formatPrice(
+      formData.billingCycle === 'monthly' ? plan.monthlyPrice : plan.yearlyPrice
+    )
   }
 
   const getPeriod = (plan) => {
@@ -109,10 +52,8 @@ const SignUp = () => {
   }
 
   const getSavings = (plan) => {
-    if (plan.monthlyPrice === 0) return ''
-    const monthlyCost = plan.monthlyPrice * 12
-    const savings = monthlyCost - plan.yearlyPrice
-    return savings > 0 ? `Save $${savings}/year` : ''
+    const savings = stripeService.calculateYearlySavings(plan)
+    return savings > 0 ? `Save ${stripeService.formatPrice(savings)}/year` : ''
   }
 
   const validateStep1 = async () => {
@@ -226,10 +167,10 @@ const SignUp = () => {
           navigate('/app')
         } else {
           // Paid plan - redirect to Stripe payment
-          const selectedPlan = plans.find(p => p.id === formData.selectedPlan)
+          const selectedPlan = STRIPE_PLANS[formData.selectedPlan]
           
-          if (selectedPlan && selectedPlan.paymentLinks) {
-            const paymentLink = selectedPlan.paymentLinks[formData.billingCycle]
+          if (selectedPlan) {
+            const paymentLink = stripeService.getPaymentLink(formData.selectedPlan, formData.billingCycle)
             
             if (paymentLink) {
               // Store user info in sessionStorage for post-payment redirect
@@ -637,10 +578,13 @@ const SignUp = () => {
                       <div className="space-y-3 mb-4">
                         <div className="text-center p-3 bg-mission-bg-tertiary rounded">
                           <div className="text-sm font-inter-tight font-bold text-mission-text-primary">
-                            {plan.stations}
+                            {plan.limits.stations === Infinity ? 'Unlimited' : plan.limits.stations} Stations
                           </div>
                           <div className="text-sm font-inter-tight font-bold text-mission-text-primary">
-                            {plan.equipment}
+                            {plan.limits.equipment === Infinity ? 'Unlimited' : plan.limits.equipment} Equipment
+                          </div>
+                          <div className="text-sm font-inter-tight font-bold text-mission-text-primary">
+                            {plan.limits.users === Infinity ? 'Unlimited' : plan.limits.users} Users
                           </div>
                         </div>
 

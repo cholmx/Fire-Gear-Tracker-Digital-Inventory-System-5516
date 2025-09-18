@@ -1,6 +1,9 @@
 import React, { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useDatabase } from '../contexts/DatabaseContext'
+import { stripeService, STRIPE_PLANS } from '../lib/stripe'
+import SubscriptionManager from '../components/SubscriptionManager'
+import useSubscription from '../hooks/useSubscription'
 import SafeIcon from '../common/SafeIcon'
 import * as FiIcons from 'react-icons/fi'
 
@@ -9,39 +12,15 @@ const { FiUser, FiCreditCard, FiDownload, FiUpload, FiTrash2, FiCheck, FiDatabas
 const Settings = () => {
   const { user } = useAuth()
   const { query } = useDatabase()
+  const subscription = useSubscription()
   const [activeTab, setActiveTab] = useState('profile')
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false)
 
   const tabs = [
     { id: 'profile', name: 'Profile', icon: FiUser },
     { id: 'database', name: 'Database', icon: FiDatabase },
     { id: 'subscription', name: 'Subscription', icon: FiCreditCard },
     { id: 'data', name: 'Data Management', icon: FiDownload },
-  ]
-
-  const plans = [
-    {
-      name: 'Free',
-      price: '$0',
-      period: '/month',
-      features: ['1 Station', '50 Equipment pieces', 'Basic support'],
-      current: user?.plan === 'Free'
-    },
-    {
-      name: 'Professional',
-      price: '$12',
-      period: '/month',
-      yearlyPrice: '$120/year (same price)',
-      features: ['3 Stations', '300 Equipment pieces', 'Priority support', 'Advanced reporting'],
-      current: user?.plan === 'Professional'
-    },
-    {
-      name: 'Unlimited',
-      price: '$24',
-      period: '/month',
-      yearlyPrice: '$240/year (same price)',
-      features: ['Unlimited Stations', 'Unlimited Equipment', 'Premium support', 'Custom integrations'],
-      current: user?.plan === 'Unlimited'
-    }
   ]
 
   const handleExportData = async () => {
@@ -73,6 +52,10 @@ const Settings = () => {
       console.error('Export error:', error)
       alert('Error exporting data. Please try again.')
     }
+  }
+
+  const handleManageBilling = async () => {
+    setShowSubscriptionModal(true)
   }
 
   return (
@@ -213,71 +196,136 @@ const Settings = () => {
             </div>
           </div>
         )}
-
-        {activeTab === 'subscription' && (
-          <div className="space-y-6">
-            <h2 className="text-lg font-inter-tight font-semibold text-mission-text-primary">Subscription Plans</h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {plans.map((plan) => (
-                <div
-                  key={plan.name}
-                  className={`
-                    relative border rounded-lg p-6 transition-colors
-                    ${plan.current
-                      ? 'border-fire-red bg-fire-red/10'
-                      : 'border-mission-border hover:border-mission-border-light'
+            {/* Current Plan Overview */}
+            <div className="bg-mission-bg-tertiary rounded-lg p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-xl font-inter-tight font-bold text-mission-text-primary">
+                    {subscription.currentPlan.name} Plan
+                  </h3>
+                  <p className="text-mission-text-secondary">
+                    {subscription.currentPlan.monthlyPrice === 0 
+                      ? 'Free forever' 
+                      : `${stripeService.formatPrice(subscription.currentPlan.monthlyPrice)}/month`
                     }
-                  `}
-                >
-                  {plan.current && (
-                    <div className="absolute -top-3 left-6">
-                      <span className="bg-fire-red text-white px-3 py-1 rounded-full text-xs font-inter font-medium">
-                        Current Plan
-                      </span>
-                    </div>
-                  )}
-                  
-                  <div className="text-center">
-                    <h3 className="text-lg font-inter-tight font-semibold text-mission-text-primary">{plan.name}</h3>
-                    <div className="mt-2">
-                      <span className="text-3xl font-inter-tight font-bold text-mission-text-primary">{plan.price}</span>
-                      <span className="font-inter text-mission-text-muted">{plan.period}</span>
-                    </div>
-                    {plan.yearlyPrice && (
-                      <p className="text-sm font-inter text-mission-text-muted mt-1">{plan.yearlyPrice}</p>
-                    )}
-                  </div>
-
-                  <ul className="mt-6 space-y-3">
-                    {plan.features.map((feature, index) => (
-                      <li key={index} className="flex items-center space-x-2">
-                        <SafeIcon icon={FiCheck} className="w-4 h-4 text-green-400" />
-                        <span className="font-inter text-mission-text-secondary text-sm">{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  <button
-                    disabled={plan.current}
-                    className={`
-                      w-full mt-6 px-4 py-2 rounded-lg font-inter font-medium transition-colors
-                      ${plan.current
-                        ? 'bg-mission-bg-tertiary text-mission-text-muted cursor-not-allowed'
-                        : 'bg-fire-red hover:bg-fire-red-dark text-white'
-                      }
-                    `}
-                  >
-                    {plan.current ? 'Current Plan' : 'Upgrade'}
-                  </button>
+                  </p>
                 </div>
-              ))}
+                <div className="text-right">
+                  <div className={`px-3 py-1 rounded-full text-xs font-roboto-mono font-medium ${
+                    subscription.isSubscriptionActive 
+                      ? 'bg-green-500/20 text-green-400' 
+                      : 'bg-yellow-500/20 text-yellow-400'
+                  }`}>
+                    {subscription.isSubscriptionActive ? 'ACTIVE' : 'INACTIVE'}
+                  </div>
+                  {subscription.daysUntilTrialEnd !== null && (
+                    <p className="text-xs text-mission-text-muted mt-1">
+                      Trial ends in {subscription.daysUntilTrialEnd} days
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Usage Overview */}
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                {Object.entries(subscription.usage).map(([resource, count]) => {
+                  const limit = subscription.limits[resource]
+                  const percentage = limit === Infinity ? 0 : (count / limit) * 100
+                  
+                  return (
+                    <div key={resource} className="text-center">
+                      <div className="text-lg font-roboto-mono font-bold text-mission-text-primary">
+                        {count}
+                        {limit !== Infinity && (
+                          <span className="text-mission-text-muted">/{limit}</span>
+                        )}
+                      </div>
+                      <div className="text-xs text-mission-text-muted capitalize">
+                        {resource}
+                      </div>
+                      {limit !== Infinity && (
+                        <div className="mt-1 w-full bg-mission-bg-primary rounded-full h-1">
+                          <div 
+                            className={`h-1 rounded-full ${
+                              percentage >= 90 ? 'bg-red-600' : 
+                              percentage >= 70 ? 'bg-yellow-600' : 'bg-green-600'
+                            }`}
+                            style={{ width: `${Math.min(percentage, 100)}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {subscription.canUpgrade && (
+                <button
+                  onClick={handleManageBilling}
+                  className="w-full bg-fire-red hover:bg-fire-red-dark text-white px-4 py-2 rounded-lg transition-colors font-inter font-medium"
+                >
+                  Upgrade Plan
+                </button>
+              )}
             </div>
 
-            <div className="pt-4">
-              <p className="text-sm font-inter text-mission-text-muted">
-                Subscription management is handled through Supabase. Contact support for billing inquiries.
+            {/* Usage Warnings */}
+            {subscription.getUsageWarnings().length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-base font-inter-tight font-medium text-mission-text-primary">
+                  Usage Alerts
+                </h3>
+                {subscription.getUsageWarnings().map((warning) => (
+                  <div 
+                    key={warning.resource}
+                    className={`p-4 rounded-lg border ${
+                      warning.severity === 'critical' 
+                        ? 'bg-red-950/20 border-red-800' 
+                        : 'bg-yellow-900/20 border-yellow-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className={`font-medium ${
+                          warning.severity === 'critical' ? 'text-red-400' : 'text-yellow-400'
+                        }`}>
+                          {warning.resource.charAt(0).toUpperCase() + warning.resource.slice(1)} Limit
+                        </h4>
+                        <p className={`text-sm ${
+                          warning.severity === 'critical' ? 'text-red-300' : 'text-yellow-300'
+                        }`}>
+                          Using {warning.count} of {warning.limit} ({warning.percentage}%)
+                        </p>
+                      </div>
+                      {subscription.canUpgrade && (
+                        <button
+                          onClick={handleManageBilling}
+                          className="text-xs bg-fire-red hover:bg-fire-red-dark text-white px-3 py-1 rounded transition-colors"
+                        >
+                          Upgrade
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Billing Management */}
+            <div className="bg-mission-bg-tertiary rounded-lg p-4">
+              <h3 className="text-base font-inter-tight font-medium text-mission-text-primary mb-3">
+                Billing Management
+              </h3>
+              <p className="text-mission-text-muted text-sm mb-4">
+                Manage your subscription, view invoices, and update payment methods through Stripe's secure billing portal.
               </p>
+              <button
+                onClick={handleManageBilling}
+                className="flex items-center space-x-2 bg-mission-accent-blue hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                <SafeIcon icon={FiCreditCard} className="w-4 h-4" />
+                <span>Manage Subscription</span>
+              </button>
             </div>
           </div>
         )}
@@ -339,6 +387,11 @@ const Settings = () => {
           </div>
         )}
       </div>
+
+      <SubscriptionManager 
+        showUpgradeModal={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+      />
     </div>
   )
 }

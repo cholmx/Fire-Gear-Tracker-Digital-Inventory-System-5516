@@ -17,6 +17,7 @@ import SignUp from './pages/SignUp'
 import LandingPage from './pages/LandingPage'
 import Documentation from './pages/Documentation'
 import ContactSales from './pages/ContactSales'
+import PaymentSuccess from './components/PaymentSuccess'
 import ProtectedRoute from './components/ProtectedRoute'
 
 function App() {
@@ -32,6 +33,7 @@ function App() {
               <Route path="/signup" element={<SignUp />} />
               <Route path="/documentation" element={<Documentation />} />
               <Route path="/contact-sales" element={<ContactSales />} />
+              <Route path="/payment/success" element={<PaymentSuccess />} />
               
               {/* Protected routes with data loading wrapper */}
               <Route 
