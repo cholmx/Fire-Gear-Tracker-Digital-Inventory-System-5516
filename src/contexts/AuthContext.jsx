@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react'
 import supabase, { handleSupabaseError } from '../lib/supabase'
 import { db } from '../lib/database'
 import { toast } from '../lib/toast'
+import { STRIPE_PLANS } from '../lib/stripe'
 
 const AuthContext = createContext()
 
@@ -256,12 +257,12 @@ export const AuthProvider = ({ children }) => {
     hasPermission,
     isSubscriptionActive: () => department?.subscriptionStatus === 'active' || department?.subscriptionStatus === 'trial',
     getPlanLimits: () => {
-      const limits = {
-        free: { stations: 1, equipment: 50, users: 3 },
-        professional: { stations: 3, equipment: 300, users: 10 },
-        unlimited: { stations: Infinity, equipment: Infinity, users: Infinity }
-      }
-      return limits[department?.plan] || limits.free
+      const plan = STRIPE_PLANS[department?.plan || 'free']
+      return plan?.limits || { stations: 1, equipment: 50, users: 3 }
+    },
+    canUseFeature: (feature) => {
+      // All plans have the same features, only limits differ
+      return isSubscriptionActive()
     }
   }
 

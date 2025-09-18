@@ -1,6 +1,7 @@
 import React,{useState} from 'react'
 import {Link,useNavigate} from 'react-router-dom'
 import {motion} from 'framer-motion'
+import {stripeService,STRIPE_PLANS} from '../lib/stripe'
 import SafeIcon from '../common/SafeIcon'
 import * as FiIcons from 'react-icons/fi' 
 
@@ -26,16 +27,20 @@ const LandingPage=()=> {
     {name: 'Lieutenant Williams',department: 'Riverside Fire Dept',location: 'Sample City,State',content: 'The digital inventory system is exactly what we needed. No more lost paperwork and we can access our equipment data from anywhere.',rating: 5,equipment: '320+ items tracked',savings: 'Paperless operations'} 
   ] 
 
-  const plans=[ 
-    {name: 'Free',monthlyPrice: 0,yearlyPrice: 0,description: 'Perfect for small departments getting started',stations: '1 Station',equipment: '50 Equipment Items',cta: 'Get Started',popular: false,planId: 'free',features: [ 'Equipment tracking & inventory','Inspection scheduling','Equipment history','Cloud storage & sync','NFPA compliance templates' ]},
-    {name: 'Professional',monthlyPrice: 14,yearlyPrice: 140,description: 'Ideal for growing departments',stations: '3 Stations',equipment: '300 Equipment Items',cta: 'Get Started',popular: true,planId: 'professional',features: [ 'Everything in Free plan','Multi-station management','Advanced reporting','Real-time sync','Email support' ]},
-    {name: 'Unlimited',monthlyPrice: 28,yearlyPrice: 280,description: 'For large departments and districts',stations: 'Unlimited Stations',equipment: 'Unlimited Equipment',cta: 'Get Started',popular: false,planId: 'unlimited',features: [ 'Everything in Professional plan','Unlimited stations & equipment','Advanced analytics','Priority support' ]} 
-  ] 
+  const plans = Object.values(STRIPE_PLANS).map(plan => ({
+    ...plan,
+    description: plan.id === 'free' ? 'Perfect for small departments getting started' :
+                plan.id === 'professional' ? 'Ideal for growing departments' :
+                'For large departments and districts',
+    popular: plan.id === 'professional',
+    cta: 'Get Started'
+  }))
 
   // Filter plans based on billing cycle - show all plans but adjust pricing 
   const getPrice=(plan)=> {
-    if (plan.monthlyPrice===0) return 'Free' 
-    return billingCycle==='monthly' ? `$${plan.monthlyPrice}` : `$${plan.yearlyPrice}`
+    return stripeService.formatPrice(
+      billingCycle === 'monthly' ? plan.monthlyPrice : plan.yearlyPrice
+    )
   } 
 
   const getPeriod=(plan)=> {
@@ -44,16 +49,14 @@ const LandingPage=()=> {
   } 
 
   const getSavings=(plan)=> {
-    if (plan.monthlyPrice===0) return '' 
-    const monthlyCost=plan.monthlyPrice * 12 
-    const savings=monthlyCost - plan.yearlyPrice 
-    return savings > 0 ? `Save $${savings}/year` : ''
+    const savings = stripeService.calculateYearlySavings(plan)
+    return savings > 0 ? `Save ${stripeService.formatPrice(savings)}/year` : ''
   } 
 
   const handlePlanClick=(plan)=> {
     // Use navigate instead of window.location.href for HashRouter 
-    const signupPath=`/signup?plan=${plan.planId}` 
-    if (billingCycle==='yearly' && plan.planId !=='free') {
+    const signupPath=`/signup?plan=${plan.id}` 
+    if (billingCycle==='yearly' && plan.id !=='free') {
       navigate(`${signupPath}&billing=yearly`)
     } else {
       navigate(signupPath)
@@ -426,10 +429,13 @@ const LandingPage=()=> {
                 <div className="space-y-6 mb-8"> 
                   <div className="text-center p-4 bg-mission-bg-tertiary rounded-lg"> 
                     <div className="text-lg font-inter-tight font-bold text-mission-text-primary mb-1"> 
-                      {plan.stations} 
+                      {plan.limits.stations === Infinity ? 'Unlimited' : plan.limits.stations} Stations
                     </div> 
                     <div className="text-lg font-inter-tight font-bold text-mission-text-primary"> 
-                      {plan.equipment} 
+                      {plan.limits.equipment === Infinity ? 'Unlimited' : plan.limits.equipment} Equipment
+                    </div>
+                    <div className="text-lg font-inter-tight font-bold text-mission-text-primary"> 
+                      {plan.limits.users === Infinity ? 'Unlimited' : plan.limits.users} Users
                     </div> 
                   </div> 
 
